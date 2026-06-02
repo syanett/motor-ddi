@@ -131,7 +131,6 @@
 <!-- 3. UI Controller (interfaz y eventos - accede al motor) -->
 <script>
 // Variables globales del UI
-let DB, Engine, Importer, Exporter, Admin, loadDemoData, DDI_COLORS;
 let currentView = 'dashboard';
 let cachedResults = [];
 let sortConfig = { col: '', dir: 'asc' };
@@ -143,13 +142,14 @@ function initializeApp() {
   const M = window.MotorReabastecimiento;
   if (!M) { setTimeout(initializeApp, 100); return; }
   
-  DB = M.DB;
-  Engine = M.Engine;
-  Importer = M.Importer;
-  Exporter = M.Exporter;
-  Admin = M.Admin;
-  loadDemoData = M.loadDemoData;
-  DDI_COLORS = M.DDI_COLORS;
+  // Asignar a window para acceso global sin redeclarar
+  window.DB         = M.DB;
+  window.Engine     = M.Engine;
+  window.Importer   = M.Importer;
+  window.Exporter   = M.Exporter;
+  window.Admin      = M.Admin;
+  window.loadDemoData = M.loadDemoData;
+  window.DDI_COLORS = M.DDI_COLORS;
   
   // Cargar datos
   DB.load();

@@ -1,3 +1,6 @@
+(function () {
+'use strict';
+
 /**
  * motor.js — Motor de Reabastecimiento DDI
  * Supply Replenishment Engine
@@ -757,3 +760,4 @@ window.MotorReabastecimiento = {
   DB, Engine, Importer, Exporter, Admin,
   loadDemoData, DDI_COLORS
 };
+})(); // end IIFE
