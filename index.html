@@ -1,0 +1,1319 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Motor DDI — Reabastecimiento</title>
+<link rel="stylesheet" href="styles.css">
+<!-- SheetJS para Excel -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+
+<div id="toast-container"></div>
+<div id="sidebar-overlay" onclick="closeSidebar()"></div>
+
+<div id="app">
+
+  <!-- ═══════════ SIDEBAR ═══════════ -->
+  <nav id="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-mark">
+        <div class="logo-icon">DDI</div>
+        <div class="logo-text">
+          <strong>Motor DDI</strong>
+          <span>v1.0 — Reabastecimiento</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-nav">
+      <div class="nav-section">
+        <div class="nav-label">Análisis</div>
+        <div class="nav-item active" data-view="dashboard" onclick="navigateTo('dashboard')">
+          <span class="nav-icon">◉</span> Dashboard
+        </div>
+        <div class="nav-item" data-view="replenishment" onclick="navigateTo('replenishment')">
+          <span class="nav-icon">⬆</span> Reabastecimiento
+        </div>
+        <div class="nav-item" data-view="suppliers-view" onclick="navigateTo('suppliers-view')">
+          <span class="nav-icon">⊞</span> Por Proveedor
+        </div>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-label">Administración</div>
+        <div class="nav-item" data-view="admin-skus" onclick="navigateTo('admin-skus')">
+          <span class="nav-icon">▦</span> SKUs
+        </div>
+        <div class="nav-item" data-view="admin-destinations" onclick="navigateTo('admin-destinations')">
+          <span class="nav-icon">◈</span> Destinos
+        </div>
+        <div class="nav-item" data-view="admin-suppliers" onclick="navigateTo('admin-suppliers')">
+          <span class="nav-icon">◎</span> Proveedores
+        </div>
+        <div class="nav-item" data-view="admin-matrix" onclick="navigateTo('admin-matrix')">
+          <span class="nav-icon">⊡</span> Matriz SKU-Prov-Dest
+        </div>
+        <div class="nav-item" data-view="admin-inventory" onclick="navigateTo('admin-inventory')">
+          <span class="nav-icon">≡</span> Inventario
+        </div>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-label">Datos</div>
+        <div class="nav-item" data-view="import" onclick="navigateTo('import')">
+          <span class="nav-icon">↓</span> Importar Excel
+        </div>
+        <div class="nav-item" data-view="templates" onclick="navigateTo('templates')">
+          <span class="nav-icon">⊟</span> Plantillas
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-footer" id="sidebar-footer">
+      Cargando...
+    </div>
+  </nav>
+
+  <!-- ═══════════ MAIN ═══════════ -->
+  <div id="main">
+
+    <header id="header">
+      <button class="mobile-menu-btn" onclick="openSidebar()">☰</button>
+      <div>
+        <div class="header-title" id="header-title">Dashboard</div>
+        <div class="header-subtitle" id="header-subtitle">Vista general del sistema</div>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary btn-sm" onclick="recalcAll()" title="Recalcular">⟳ Recalcular</button>
+        <button class="btn btn-primary btn-sm" onclick="exportResults()">↓ Exportar</button>
+      </div>
+    </header>
+
+    <div id="content">
+      <!-- Las vistas se renderizan aquí -->
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ MODAL DETALLE SKU ═══════════ -->
+<div id="sku-modal" class="modal-overlay" style="display:none">
+  <div class="modal" style="max-width:720px">
+    <div class="modal-header">
+      <h3 id="sku-modal-title">Detalle SKU</h3>
+      <button class="modal-close" onclick="closeModal('sku-modal')">✕</button>
+    </div>
+    <div class="modal-body" id="sku-modal-body"></div>
+  </div>
+</div>
+
+<!-- ═══════════ MODAL FORM GENÉRICO ═══════════ -->
+<div id="form-modal" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="form-modal-title">Formulario</h3>
+      <button class="modal-close" onclick="closeModal('form-modal')">✕</button>
+    </div>
+    <div class="modal-body" id="form-modal-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('form-modal')">Cancelar</button>
+      <button class="btn btn-primary" id="form-modal-save" onclick="formModalSave()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<script src="motor.js"></script>
+<script>
+/* ═══════════════════════════════════════════════════════════
+   UI CONTROLLER — app.js (inline)
+   ═══════════════════════════════════════════════════════════ */
+
+const { DB, Engine, Importer, Exporter, Admin, loadDemoData, DDI_COLORS } = window.MotorReabastecimiento;
+
+// ─── ESTADO GLOBAL ───
+let currentView = 'dashboard';
+let cachedResults = [];
+let sortConfig = { col: '', dir: 'asc' };
+let formModalCallback = null;
+
+// ─── INIT ───
+document.addEventListener('DOMContentLoaded', () => {
+  DB.load();
+  const db = DB.get();
+  if (!db.skus.length) {
+    loadDemoData();
+    toast('Datos de demostración cargados', 'info');
+  }
+  recalcAll(false);
+  updateSidebarFooter();
+  navigateTo('dashboard');
+});
+
+function recalcAll(notify = true) {
+  cachedResults = Engine.calcAll();
+  updateSidebarFooter();
+  if (notify) toast(`${cachedResults.length} filas recalculadas`, 'success');
+  renderCurrentView();
+}
+
+function renderCurrentView() {
+  navigateTo(currentView, false);
+}
+
+function updateSidebarFooter() {
+  const db = DB.get();
+  const el = document.getElementById('sidebar-footer');
+  if (!el) return;
+  const last = db.meta.lastImport
+    ? new Date(db.meta.lastImport).toLocaleDateString('es-CO')
+    : 'Sin importar';
+  el.textContent = `${db.skus.length} SKUs · ${db.inventory.length} filas · ${last}`;
+}
+
+// ─── NAVEGACIÓN ───
+function navigateTo(view, updateActive = true) {
+  currentView = view;
+  if (updateActive) {
+    document.querySelectorAll('.nav-item').forEach(el => {
+      el.classList.toggle('active', el.dataset.view === view);
+    });
+  }
+  const headers = {
+    'dashboard':        ['Dashboard',               'Vista general del inventario'],
+    'replenishment':    ['Reabastecimiento',         'Compras sugeridas por SKU y destino'],
+    'suppliers-view':   ['Vista por Proveedor',      'Distribución de compras por proveedor'],
+    'admin-skus':       ['Administrar SKUs',          'Gestión de productos'],
+    'admin-destinations':['Administrar Destinos',     'Bodegas y centros de distribución'],
+    'admin-suppliers':  ['Administrar Proveedores',   'Gestión de proveedores'],
+    'admin-matrix':     ['Matriz SKU-Prov-Dest',      'Lead times, pesos y rutas de abastecimiento'],
+    'admin-inventory':  ['Inventario',                'Editar niveles de inventario y demanda'],
+    'import':           ['Importar Excel',             'Carga masiva de datos desde archivo .xlsx'],
+    'templates':        ['Plantillas Excel',           'Descarga plantillas para importación'],
+  };
+  const [title, sub] = headers[view] || ['Vista', ''];
+  document.getElementById('header-title').textContent = title;
+  document.getElementById('header-subtitle').textContent = sub;
+
+  const views = {
+    'dashboard':        renderDashboard,
+    'replenishment':    renderReplenishment,
+    'suppliers-view':   renderSuppliersView,
+    'admin-skus':       renderAdminSKUs,
+    'admin-destinations': renderAdminDestinations,
+    'admin-suppliers':  renderAdminSuppliers,
+    'admin-matrix':     renderAdminMatrix,
+    'admin-inventory':  renderAdminInventory,
+    'import':           renderImport,
+    'templates':        renderTemplates,
+  };
+  (views[view] || (() => {}))();
+  closeSidebar();
+}
+
+// ─── HELPERS HTML ───
+function fmt(n, dec = 1) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  return Number(n).toLocaleString('es-CO', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+}
+function fmtInt(n) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  return Number(n).toLocaleString('es-CO', { maximumFractionDigits: 0 });
+}
+
+function ddiHtml(ddi) {
+  const c = Engine.getDDIColor(ddi);
+  const val = ddi !== null && !isNaN(ddi) ? fmt(ddi) : '—';
+  const pct = ddi !== null ? Math.min(ddi / 60 * 100, 100) : 0;
+  return `<div style="display:flex;align-items:center;gap:8px">
+    <div class="ddi-dot" style="background:${c.color}"></div>
+    <span style="font-family:var(--font-mono);font-weight:600;color:${c.color};font-size:13px">${val}</span>
+    <div class="ddi-bar"><div class="ddi-bar-fill" style="width:${pct}%;background:${c.color}"></div></div>
+  </div>`;
+}
+
+function ddiRowClass(ddi) {
+  if (ddi === null) return '';
+  if (ddi < 0)  return 'ddi-critical';
+  if (ddi <= 7) return 'ddi-vlow';
+  if (ddi <= 14) return 'ddi-low';
+  return '';
+}
+
+function ddiLegendHtml() {
+  return `<div class="ddi-legend">
+    ${DDI_COLORS.map(c => `
+      <div class="legend-item">
+        <div class="legend-dot" style="background:${c.color}"></div>
+        <span>${c.label} (${c.max < Infinity ? '≤' + c.max : '>60'}d)</span>
+      </div>`).join('')}
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// VISTAS
+// ═══════════════════════════════════════════════════════════
+
+// ─── DASHBOARD ───
+function renderDashboard() {
+  const db = DB.get();
+  const results = cachedResults;
+  const totalSKUs = db.skus.length;
+  const activeDests = db.destinations.filter(d => d.active).length;
+  const totalRows = results.length;
+  const needsBuy = results.filter(r => r.suggestedQty > 0).length;
+  const critical = results.filter(r => r.currentDDI !== null && r.currentDDI < 0).length;
+  const veryLow  = results.filter(r => r.currentDDI !== null && r.currentDDI >= 0 && r.currentDDI <= 7).length;
+  const totalQty = results.reduce((s, r) => s + r.suggestedQty, 0);
+
+  // Agrupar por categoría DDI
+  const bandCounts = {};
+  DDI_COLORS.forEach(b => { bandCounts[b.label] = 0; });
+  results.forEach(r => {
+    const c = Engine.getDDIColor(r.currentDDI);
+    bandCounts[c.label] = (bandCounts[c.label] || 0) + 1;
+  });
+
+  document.getElementById('content').innerHTML = `
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">SKUs activos</div>
+        <div class="kpi-value kpi-accent">${totalSKUs}</div>
+        <div class="kpi-sub">${activeDests} destinos</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Filas analizadas</div>
+        <div class="kpi-value">${totalRows}</div>
+        <div class="kpi-sub">SKU × Destino</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Requieren compra</div>
+        <div class="kpi-value ${needsBuy > 0 ? 'kpi-warning' : 'kpi-success'}">${needsBuy}</div>
+        <div class="kpi-sub">de ${totalRows} combinaciones</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Unidades sugeridas</div>
+        <div class="kpi-value kpi-accent">${fmtInt(totalQty)}</div>
+        <div class="kdi-sub">total a comprar</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">DDI Crítico (&lt;0)</div>
+        <div class="kpi-value kpi-danger">${critical}</div>
+        <div class="kpi-sub">ruptura de stock</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">DDI Muy Bajo (≤7)</div>
+        <div class="kpi-value kpi-warning">${veryLow}</div>
+        <div class="kpi-sub">riesgo inmediato</div>
+      </div>
+    </div>
+
+    ${ddiLegendHtml()}
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px" id="chart-section">
+      <div class="card">
+        <div class="card-header"><h3>Distribución DDI</h3></div>
+        <div class="card-body">
+          ${DDI_COLORS.map(b => {
+            const count = bandCounts[b.label] || 0;
+            const pct = totalRows ? (count / totalRows * 100) : 0;
+            return count > 0 ? `
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                <div style="width:90px;font-size:11px;color:var(--text3)">${b.label}</div>
+                <div style="flex:1;height:16px;background:var(--bg3);border-radius:3px;overflow:hidden;border:1px solid var(--border)">
+                  <div style="width:${pct}%;height:100%;background:${b.color};display:flex;align-items:center;padding:0 5px">
+                    ${pct > 12 ? `<span style="font-size:10px;font-family:var(--font-mono);color:white;font-weight:600">${count}</span>` : ''}
+                  </div>
+                </div>
+                <div style="font-family:var(--font-mono);font-size:11px;width:30px;text-align:right;color:${b.color}">${count}</div>
+              </div>` : '';
+          }).join('')}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>Top alertas críticas</h3></div>
+        <div class="card-body">
+          ${results
+            .filter(r => r.suggestedQty > 0)
+            .sort((a,b) => (a.currentDDI ?? 999) - (b.currentDDI ?? 999))
+            .slice(0, 8)
+            .map(r => {
+              const c = Engine.getDDIColor(r.currentDDI);
+              return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)">
+                <div class="ddi-dot" style="background:${c.color}"></div>
+                <div style="flex:1">
+                  <div style="font-size:12px;font-weight:600">${r.skuCode}</div>
+                  <div style="font-size:11px;color:var(--text3)">${r.destName}</div>
+                </div>
+                <div style="font-family:var(--font-mono);font-size:12px;color:${c.color};font-weight:700">${fmt(r.currentDDI)}d</div>
+                <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent)">+${fmtInt(r.suggestedQty)}</div>
+              </div>`;
+            }).join('') || '<div class="empty-state" style="padding:20px"><div>✓ Sin alertas críticas</div></div>'}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3>Resumen por destino</h3>
+      </div>
+      <div class="card-body" style="padding:0">
+        <div class="table-wrap" style="border:none;border-radius:0">
+          <table>
+            <thead>
+              <tr>
+                <th>Destino</th>
+                <th>SKUs</th>
+                <th>Requieren compra</th>
+                <th>Unidades a comprar</th>
+                <th>DDI Promedio</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${db.destinations.filter(d => d.active).map(dest => {
+                const dRows = results.filter(r => r.destId === dest.id);
+                const dNeedBuy = dRows.filter(r => r.suggestedQty > 0).length;
+                const dTotalQty = dRows.reduce((s,r) => s+r.suggestedQty, 0);
+                const dDDIs = dRows.filter(r => r.currentDDI !== null);
+                const avgDDI = dDDIs.length ? dDDIs.reduce((s,r) => s+r.currentDDI, 0) / dDDIs.length : null;
+                const c = Engine.getDDIColor(avgDDI);
+                return `<tr>
+                  <td class="bold">${dest.name}</td>
+                  <td class="mono">${dRows.length}</td>
+                  <td class="mono ${dNeedBuy > 0 ? '' : ''}">${dNeedBuy}</td>
+                  <td class="mono" style="color:${dTotalQty > 0 ? 'var(--accent)' : 'var(--text3)'}">${fmtInt(dTotalQty)}</td>
+                  <td>${ddiHtml(avgDDI)}</td>
+                  <td><span class="chip" style="color:${c.color};border-color:${c.color}40;background:${c.color}15">${c.label}</span></td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ─── REABASTECIMIENTO ───
+function renderReplenishment(filterFn = null, query = '', destFilter = '', catFilter = '') {
+  const db = DB.get();
+  let results = [...cachedResults];
+  if (query) {
+    const q = query.toLowerCase();
+    results = results.filter(r =>
+      r.skuCode.toLowerCase().includes(q) ||
+      r.skuName.toLowerCase().includes(q) ||
+      r.description.toLowerCase().includes(q) ||
+      r.destName.toLowerCase().includes(q)
+    );
+  }
+  if (destFilter) results = results.filter(r => r.destId === destFilter);
+  if (catFilter)  results = results.filter(r => r.category === catFilter);
+
+  const cats = [...new Set(cachedResults.map(r => r.category).filter(Boolean))];
+  const dests = db.destinations.filter(d => d.active);
+
+  document.getElementById('content').innerHTML = `
+    <div class="section-header">
+      <div>
+        <div class="section-title">Reabastecimiento</div>
+        <div class="section-sub">${results.length} combinaciones · ${results.filter(r=>r.suggestedQty>0).length} con compra sugerida</div>
+      </div>
+      <div class="section-actions">
+        <button class="btn btn-secondary btn-sm" onclick="exportResults()">↓ Exportar</button>
+      </div>
+    </div>
+
+    ${ddiLegendHtml()}
+
+    <div class="toolbar">
+      <div class="search-box">
+        <span class="search-icon">⌕</span>
+        <input type="text" placeholder="Buscar SKU, descripción..." id="rep-search" value="${query}"
+          oninput="renderReplenishment(null, this.value, document.getElementById('rep-dest').value, document.getElementById('rep-cat').value)">
+      </div>
+      <select class="filter-select" id="rep-dest"
+        onchange="renderReplenishment(null, document.getElementById('rep-search').value, this.value, document.getElementById('rep-cat').value)">
+        <option value="">Todos los destinos</option>
+        ${dests.map(d => `<option value="${d.id}" ${destFilter===d.id?'selected':''}>${d.name}</option>`).join('')}
+      </select>
+      <select class="filter-select" id="rep-cat"
+        onchange="renderReplenishment(null, document.getElementById('rep-search').value, document.getElementById('rep-dest').value, this.value)">
+        <option value="">Todas las categorías</option>
+        ${cats.map(c => `<option value="${c}" ${catFilter===c?'selected':''}>${c}</option>`).join('')}
+      </select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text3)">
+        <input type="checkbox" id="only-buy" onchange="renderReplenishment(null, document.getElementById('rep-search').value, document.getElementById('rep-dest').value, document.getElementById('rep-cat').value)"
+          ${document.getElementById('only-buy')?.checked ? 'checked' : ''}>
+        Solo con compra
+      </label>
+    </div>
+
+    <div class="table-wrap">
+      <table id="rep-table">
+        <thead>
+          <tr>
+            <th>SKU</th>
+            <th>Descripción</th>
+            <th>Destino</th>
+            <th>Inv. Disp.</th>
+            <th>Demanda/día</th>
+            <th>IRD</th>
+            <th>DDI Actual</th>
+            <th>DDI Objetivo</th>
+            <th>Lead Time</th>
+            <th>Inv. Proyectado</th>
+            <th>Compra Sugerida</th>
+            <th>DDI Proy.</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${results.length ? results
+            .filter(r => !document.getElementById('only-buy')?.checked || r.suggestedQty > 0)
+            .map(r => `
+            <tr class="${ddiRowClass(r.currentDDI)}" id="row-${r.skuId}-${r.destId}">
+              <td class="bold">${r.skuCode}</td>
+              <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.description}">${r.description}</td>
+              <td><span class="chip">${r.destName}</span></td>
+              <td class="mono">${fmtInt(r.availableInventory)}</td>
+              <td class="mono">${fmt(r.dailyDemand, 2)}</td>
+              <td class="mono">${fmt(r.ird, 4)}</td>
+              <td>${ddiHtml(r.currentDDI)}</td>
+              <td class="mono">${r.targetDDI}d</td>
+              <td class="mono">${fmt(r.avgLeadTime, 1)}d</td>
+              <td class="mono" style="color:${r.projectedInv < 0 ? 'var(--danger)' : 'var(--text2)'}">${fmtInt(r.projectedInv)}</td>
+              <td><span class="${r.suggestedQty > 0 ? 'qty-pos' : 'qty-zero'}">${r.suggestedQty > 0 ? fmtInt(r.suggestedQty) : '—'}</span></td>
+              <td>${ddiHtml(r.projectedDDI)}</td>
+              <td>
+                <button class="btn btn-ghost btn-sm btn-icon" onclick="showSKUDetail('${r.skuId}','${r.destId}')" title="Ver detalle">⊕</button>
+              </td>
+            </tr>`).join('') :
+            `<tr><td colspan="13"><div class="empty-state"><div class="empty-icon">○</div><div class="empty-title">Sin resultados</div><div class="empty-sub">Ajusta los filtros o importa datos</div></div></td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+// ─── VISTA POR PROVEEDOR ───
+function renderSuppliersView() {
+  const db = DB.get();
+  const results = cachedResults;
+
+  // Agrupar compras por proveedor
+  const supplierMap = {};
+  for (const r of results) {
+    for (const d of (r.distribution || [])) {
+      if (!d.quantity) continue;
+      if (!supplierMap[d.supplierId]) {
+        supplierMap[d.supplierId] = {
+          supplierId: d.supplierId,
+          supplierName: d.supplierName,
+          totalQty: 0,
+          lines: []
+        };
+      }
+      supplierMap[d.supplierId].totalQty += d.quantity;
+      supplierMap[d.supplierId].lines.push({
+        skuCode: r.skuCode,
+        skuName: r.skuName,
+        destName: r.destName,
+        leadTime: d.leadTime,
+        weight: d.normalizedWeight,
+        qty: d.quantity
+      });
+    }
+  }
+
+  const suppliers = Object.values(supplierMap).sort((a,b) => b.totalQty - a.totalQty);
+
+  document.getElementById('content').innerHTML = `
+    <div class="section-header">
+      <div>
+        <div class="section-title">Vista por Proveedor</div>
+        <div class="section-sub">${suppliers.length} proveedores con pedidos sugeridos</div>
+      </div>
+    </div>
+
+    ${suppliers.length === 0 ? '<div class="empty-state"><div class="empty-icon">○</div><div class="empty-title">Sin compras sugeridas</div></div>' :
+      suppliers.map(s => `
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:36px;height:36px;background:var(--accent-glow);border:1px solid var(--accent);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;font-size:16px">◎</div>
+            <div>
+              <div style="font-size:14px;font-weight:700">${s.supplierName}</div>
+              <div style="font-size:11px;color:var(--text3);font-family:var(--font-mono)">${s.lines.length} líneas · ${fmtInt(s.totalQty)} unidades total</div>
+            </div>
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Descripción</th>
+                <th>Destino</th>
+                <th>Lead Time</th>
+                <th>Peso Norm.</th>
+                <th>Cantidad</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${s.lines.map(l => `
+                <tr>
+                  <td class="bold">${l.skuCode}</td>
+                  <td>${l.skuName}</td>
+                  <td><span class="chip">${l.destName}</span></td>
+                  <td class="mono">${l.leadTime}d</td>
+                  <td class="mono">${fmt(l.weight * 100, 1)}%</td>
+                  <td class="mono" style="color:var(--accent);font-weight:700">${fmtInt(l.qty)}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`).join('')}
+  `;
+}
+
+// ─── DETALLE SKU ───
+function showSKUDetail(skuId, destId) {
+  const r = cachedResults.find(r => r.skuId === skuId && r.destId === destId);
+  if (!r) return;
+
+  const modal = document.getElementById('sku-modal');
+  document.getElementById('sku-modal-title').textContent = `${r.skuCode} — ${r.destName}`;
+
+  document.getElementById('sku-modal-body').innerHTML = `
+    <div class="sku-detail-grid">
+      <div class="detail-stat">
+        <div class="detail-stat-label">DDI Actual</div>
+        <div class="detail-stat-value" style="color:${Engine.getDDIColor(r.currentDDI).color}">${fmt(r.currentDDI)}d</div>
+      </div>
+      <div class="detail-stat">
+        <div class="detail-stat-label">DDI Objetivo</div>
+        <div class="detail-stat-value">${r.targetDDI}d</div>
+      </div>
+      <div class="detail-stat">
+        <div class="detail-stat-label">Inventario Actual</div>
+        <div class="detail-stat-value">${fmtInt(r.currentInv)}</div>
+      </div>
+      <div class="detail-stat">
+        <div class="detail-stat-label">Comprometido</div>
+        <div class="detail-stat-value">${fmtInt(r.committedInv)}</div>
+      </div>
+      <div class="detail-stat">
+        <div class="detail-stat-label">Disponible</div>
+        <div class="detail-stat-value" style="color:var(--success)">${fmtInt(r.availableInventory)}</div>
+      </div>
+      <div class="detail-stat">
+        <div class="detail-stat-label">En camino</div>
+        <div class="detail-stat-value">${fmtInt(r.incomingOrders)}</div>
+      </div>
+      <div class="detail-stat">
+        <div class="detail-stat-label">Demanda Diaria</div>
+        <div class="detail-stat-value">${fmt(r.dailyDemand, 2)}</div>
+      </div>
+      <div class="detail-stat">
+        <div class="detail-stat-label">Lead Time Prom.</div>
+        <div class="detail-stat-value">${fmt(r.avgLeadTime, 1)}d</div>
+      </div>
+      <div class="detail-stat">
+        <div class="detail-stat-label">Inv. Proyectado</div>
+        <div class="detail-stat-value" style="color:${r.projectedInv<0?'var(--danger)':'var(--text)'}">${fmtInt(r.projectedInv)}</div>
+      </div>
+      <div class="detail-stat">
+        <div class="detail-stat-label">Inv. Objetivo</div>
+        <div class="detail-stat-value">${fmtInt(r.targetInv)}</div>
+      </div>
+      <div class="detail-stat" style="border-color:var(--accent)">
+        <div class="detail-stat-label" style="color:var(--accent)">Compra Sugerida</div>
+        <div class="detail-stat-value" style="color:var(--accent)">${fmtInt(r.suggestedQty)}</div>
+      </div>
+      <div class="detail-stat">
+        <div class="detail-stat-label">DDI Proyectado</div>
+        <div class="detail-stat-value" style="color:${Engine.getDDIColor(r.projectedDDI).color}">${fmt(r.projectedDDI)}d</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:4px">
+      <div class="card-header"><h3>Distribución por proveedor</h3></div>
+      <div class="card-body">
+        ${r.distribution.length ? `
+          <div class="supplier-dist">
+            ${r.distribution.map(d => `
+              <div class="supplier-bar-row">
+                <div class="supplier-name">${d.supplierName}</div>
+                <div class="supplier-bar-wrap">
+                  <div class="supplier-bar-fill" style="width:${d.normalizedWeight*100}%">
+                    ${d.normalizedWeight > 0.15 ? fmt(d.normalizedWeight*100,0)+'%' : ''}
+                  </div>
+                </div>
+                <div style="font-size:11px;color:var(--text3);width:50px;text-align:right">${d.leadTime}d LT</div>
+                <div class="supplier-qty">${fmtInt(d.quantity)}</div>
+              </div>`).join('')}
+          </div>
+          <div style="margin-top:16px;overflow-x:auto">
+            <table>
+              <thead>
+                <tr><th>Proveedor</th><th>Lead Time</th><th>Peso Norm.</th><th>Cantidad</th><th>DDI al llegar</th></tr>
+              </thead>
+              <tbody>
+                ${r.distribution.map(d => {
+                  const pDDI = Engine.calcProjectedDDI(r.currentInv, r.dailyDemand, d.leadTime, r.incomingOrders, d.quantity);
+                  return `<tr>
+                    <td class="bold">${d.supplierName}</td>
+                    <td class="mono">${d.leadTime}d</td>
+                    <td class="mono">${fmt(d.normalizedWeight*100,1)}%</td>
+                    <td class="mono" style="color:var(--accent);font-weight:700">${fmtInt(d.quantity)}</td>
+                    <td>${ddiHtml(pDDI)}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>` :
+          '<div style="color:var(--text3);text-align:center;padding:20px">Sin proveedores activos para este SKU + Destino</div>'
+        }
+      </div>
+    </div>
+  `;
+  modal.style.display = 'flex';
+}
+
+// ═══════════════════════════════════════════════════════════
+// VISTAS ADMIN
+// ═══════════════════════════════════════════════════════════
+
+// ─── ADMIN SKUs ───
+function renderAdminSKUs() {
+  const db = DB.get();
+  document.getElementById('content').innerHTML = `
+    <div class="section-header">
+      <div><div class="section-title">SKUs</div><div class="section-sub">${db.skus.length} productos registrados</div></div>
+      <div class="section-actions">
+        <button class="btn btn-primary btn-sm" onclick="openSKUForm()">+ Nuevo SKU</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Código</th><th>Nombre</th><th>Descripción</th><th>Categoría</th><th>DDI Objetivo</th><th>MOQ</th><th>IRD</th><th>Estado</th><th></th></tr>
+        </thead>
+        <tbody>
+          ${db.skus.length ? db.skus.map(s => `
+            <tr>
+              <td class="bold">${s.code}</td>
+              <td>${s.name}</td>
+              <td style="color:var(--text3)">${s.description}</td>
+              <td><span class="chip">${s.category}</span></td>
+              <td class="mono">${s.targetDDI}d</td>
+              <td class="mono">${s.moq}</td>
+              <td class="mono">${fmt(s.ird, 4)}</td>
+              <td><span class="chip ${s.active ? 'chip-success' : 'chip-danger'}">${s.active ? 'Activo' : 'Inactivo'}</span></td>
+              <td style="display:flex;gap:6px">
+                <button class="btn btn-ghost btn-sm btn-icon" onclick='openSKUForm(${JSON.stringify(s)})'>✎</button>
+                <button class="btn btn-danger btn-sm btn-icon" onclick="deleteSKU('${s.id}')">✕</button>
+              </td>
+            </tr>`).join('') :
+            `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">▦</div><div class="empty-title">Sin SKUs</div><div class="empty-sub">Crea el primer SKU o importa desde Excel</div></div></td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function openSKUForm(sku = null) {
+  document.getElementById('form-modal-title').textContent = sku ? 'Editar SKU' : 'Nuevo SKU';
+  document.getElementById('form-modal-body').innerHTML = `
+    <div class="form-grid">
+      <div class="form-group"><label>Código SKU *</label><input id="f-code" value="${sku?.code||''}" placeholder="TEND001"></div>
+      <div class="form-group"><label>Nombre *</label><input id="f-name" value="${sku?.name||''}" placeholder="Tendidos"></div>
+      <div class="form-group"><label>Descripción</label><input id="f-desc" value="${sku?.description||''}" placeholder="Descripción del producto"></div>
+      <div class="form-group"><label>Categoría</label><input id="f-cat" value="${sku?.category||''}" placeholder="Ropa de Cama"></div>
+      <div class="form-group"><label>DDI Objetivo (días)</label><input id="f-ddi" type="number" value="${sku?.targetDDI||30}" min="1"></div>
+      <div class="form-group"><label>MOQ</label><input id="f-moq" type="number" value="${sku?.moq||1}" min="1"></div>
+      <div class="form-group"><label>IRD</label><input id="f-ird" type="number" step="0.001" value="${sku?.ird||0}"></div>
+    </div>`;
+  formModalCallback = () => {
+    const code = document.getElementById('f-code').value.trim();
+    const name = document.getElementById('f-name').value.trim();
+    if (!code || !name) { toast('Código y nombre son requeridos', 'error'); return; }
+    Admin.saveSKU({
+      id: sku?.id,
+      code, name,
+      description: document.getElementById('f-desc').value.trim(),
+      category:    document.getElementById('f-cat').value.trim(),
+      targetDDI:   parseFloat(document.getElementById('f-ddi').value) || 30,
+      moq:         parseFloat(document.getElementById('f-moq').value) || 1,
+      ird:         parseFloat(document.getElementById('f-ird').value) || 0,
+      active: true
+    });
+    closeModal('form-modal');
+    recalcAll(false);
+    renderAdminSKUs();
+    toast('SKU guardado', 'success');
+  };
+  document.getElementById('form-modal').style.display = 'flex';
+}
+
+function deleteSKU(id) {
+  if (!confirm('¿Eliminar este SKU y todos sus datos?')) return;
+  Admin.deleteSKU(id);
+  recalcAll(false);
+  renderAdminSKUs();
+  toast('SKU eliminado', 'info');
+}
+
+// ─── ADMIN DESTINOS ───
+function renderAdminDestinations() {
+  const db = DB.get();
+  document.getElementById('content').innerHTML = `
+    <div class="section-header">
+      <div><div class="section-title">Destinos</div><div class="section-sub">${db.destinations.length} destinos registrados</div></div>
+      <div class="section-actions">
+        <button class="btn btn-primary btn-sm" onclick="openDestForm()">+ Nuevo Destino</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ID</th><th>Nombre</th><th>Estado</th><th></th></tr></thead>
+        <tbody>
+          ${db.destinations.map(d => `
+            <tr>
+              <td class="mono">${d.id}</td>
+              <td class="bold">${d.name}</td>
+              <td><span class="chip ${d.active ? 'chip-success' : 'chip-danger'}">${d.active ? 'Activo' : 'Inactivo'}</span></td>
+              <td style="display:flex;gap:6px">
+                <button class="btn btn-ghost btn-sm btn-icon" onclick='openDestForm(${JSON.stringify(d)})'>✎</button>
+                <button class="btn btn-danger btn-sm btn-icon" onclick="deleteDest('${d.id}')">✕</button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function openDestForm(dest = null) {
+  document.getElementById('form-modal-title').textContent = dest ? 'Editar Destino' : 'Nuevo Destino';
+  document.getElementById('form-modal-body').innerHTML = `
+    <div class="form-grid">
+      <div class="form-group"><label>Nombre *</label><input id="f-dname" value="${dest?.name||''}" placeholder="Bogotá"></div>
+      <div class="form-group">
+        <label>Estado</label>
+        <select id="f-dactive">
+          <option value="true" ${dest?.active!==false?'selected':''}>Activo</option>
+          <option value="false" ${dest?.active===false?'selected':''}>Inactivo</option>
+        </select>
+      </div>
+    </div>`;
+  formModalCallback = () => {
+    const name = document.getElementById('f-dname').value.trim();
+    if (!name) { toast('Nombre requerido', 'error'); return; }
+    Admin.saveDestination({ id: dest?.id, name, active: document.getElementById('f-dactive').value === 'true' });
+    closeModal('form-modal');
+    recalcAll(false);
+    renderAdminDestinations();
+    toast('Destino guardado', 'success');
+  };
+  document.getElementById('form-modal').style.display = 'flex';
+}
+
+function deleteDest(id) {
+  if (!confirm('¿Eliminar este destino y todos sus datos?')) return;
+  Admin.deleteDestination(id);
+  recalcAll(false);
+  renderAdminDestinations();
+  toast('Destino eliminado', 'info');
+}
+
+// ─── ADMIN PROVEEDORES ───
+function renderAdminSuppliers() {
+  const db = DB.get();
+  document.getElementById('content').innerHTML = `
+    <div class="section-header">
+      <div><div class="section-title">Proveedores</div><div class="section-sub">${db.suppliers.length} proveedores registrados</div></div>
+      <div class="section-actions">
+        <button class="btn btn-primary btn-sm" onclick="openSupplierForm()">+ Nuevo Proveedor</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ID</th><th>Nombre</th><th>Contacto</th><th>Email</th><th>Estado</th><th></th></tr></thead>
+        <tbody>
+          ${db.suppliers.length ? db.suppliers.map(s => `
+            <tr>
+              <td class="mono">${s.id}</td>
+              <td class="bold">${s.name}</td>
+              <td style="color:var(--text3)">${s.contact||'—'}</td>
+              <td style="color:var(--text3)">${s.email||'—'}</td>
+              <td><span class="chip ${s.active ? 'chip-success' : 'chip-danger'}">${s.active ? 'Activo' : 'Inactivo'}</span></td>
+              <td style="display:flex;gap:6px">
+                <button class="btn btn-ghost btn-sm btn-icon" onclick='openSupplierForm(${JSON.stringify(s)})'>✎</button>
+                <button class="btn btn-danger btn-sm btn-icon" onclick="deleteSupplier('${s.id}')">✕</button>
+              </td>
+            </tr>`).join('') :
+            `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">◎</div><div class="empty-title">Sin proveedores</div></div></td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function openSupplierForm(supplier = null) {
+  document.getElementById('form-modal-title').textContent = supplier ? 'Editar Proveedor' : 'Nuevo Proveedor';
+  document.getElementById('form-modal-body').innerHTML = `
+    <div class="form-grid">
+      <div class="form-group"><label>Nombre *</label><input id="f-sname" value="${supplier?.name||''}" placeholder="Textilería Andina"></div>
+      <div class="form-group"><label>Contacto</label><input id="f-scont" value="${supplier?.contact||''}" placeholder="Ana López"></div>
+      <div class="form-group"><label>Email</label><input id="f-semail" type="email" value="${supplier?.email||''}" placeholder="ana@empresa.co"></div>
+      <div class="form-group">
+        <label>Estado</label>
+        <select id="f-sactive">
+          <option value="true" ${supplier?.active!==false?'selected':''}>Activo</option>
+          <option value="false" ${supplier?.active===false?'selected':''}>Inactivo</option>
+        </select>
+      </div>
+    </div>`;
+  formModalCallback = () => {
+    const name = document.getElementById('f-sname').value.trim();
+    if (!name) { toast('Nombre requerido', 'error'); return; }
+    Admin.saveSupplier({ id: supplier?.id, name, contact: document.getElementById('f-scont').value.trim(), email: document.getElementById('f-semail').value.trim(), active: document.getElementById('f-sactive').value === 'true' });
+    closeModal('form-modal');
+    recalcAll(false);
+    renderAdminSuppliers();
+    toast('Proveedor guardado', 'success');
+  };
+  document.getElementById('form-modal').style.display = 'flex';
+}
+
+function deleteSupplier(id) {
+  if (!confirm('¿Eliminar este proveedor?')) return;
+  Admin.deleteSupplier(id);
+  recalcAll(false);
+  renderAdminSuppliers();
+  toast('Proveedor eliminado', 'info');
+}
+
+// ─── ADMIN MATRIZ ───
+function renderAdminMatrix(skuFilter = '', destFilter = '') {
+  const db = DB.get();
+  let matrix = [...db.matrix];
+  if (skuFilter) matrix = matrix.filter(m => m.skuId === skuFilter);
+  if (destFilter) matrix = matrix.filter(m => m.destId === destFilter);
+
+  document.getElementById('content').innerHTML = `
+    <div class="section-header">
+      <div><div class="section-title">Matriz SKU–Proveedor–Destino</div><div class="section-sub">${db.matrix.length} entradas en la matriz</div></div>
+      <div class="section-actions">
+        <button class="btn btn-primary btn-sm" onclick="openMatrixForm()">+ Nueva Entrada</button>
+      </div>
+    </div>
+    <div class="toolbar">
+      <select class="filter-select" id="mat-sku" onchange="renderAdminMatrix(this.value, document.getElementById('mat-dest').value)">
+        <option value="">Todos los SKUs</option>
+        ${db.skus.map(s => `<option value="${s.id}" ${skuFilter===s.id?'selected':''}>${s.code}</option>`).join('')}
+      </select>
+      <select class="filter-select" id="mat-dest" onchange="renderAdminMatrix(document.getElementById('mat-sku').value, this.value)">
+        <option value="">Todos los destinos</option>
+        ${db.destinations.map(d => `<option value="${d.id}" ${destFilter===d.id?'selected':''}>${d.name}</option>`).join('')}
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>SKU</th><th>Proveedor</th><th>Destino</th><th>Lead Time (días)</th><th>Peso (%)</th><th>Peso Norm.</th><th>Activo</th><th></th></tr></thead>
+        <tbody>
+          ${matrix.length ? matrix.map(m => {
+            const sku = db.skus.find(s => s.id === m.skuId);
+            const sup = db.suppliers.find(s => s.id === m.supplierId);
+            const dest = db.destinations.find(d => d.id === m.destId);
+            const norm = Engine.normalizeSupplierWeights(m.skuId, m.destId);
+            const normEntry = norm.find(n => n.supplierId === m.supplierId);
+            return `<tr>
+              <td class="bold">${sku?.code || m.skuId}</td>
+              <td>${sup?.name || m.supplierId}</td>
+              <td><span class="chip">${dest?.name || m.destId}</span></td>
+              <td class="mono">${m.leadTime}d</td>
+              <td class="mono">${fmt(m.weight, 1)}%</td>
+              <td class="mono">${normEntry ? fmt(normEntry.normalizedWeight * 100, 1) : '—'}%</td>
+              <td><span class="chip ${m.active ? 'chip-success' : 'chip-danger'}">${m.active ? 'Sí' : 'No'}</span></td>
+              <td style="display:flex;gap:6px">
+                <button class="btn btn-ghost btn-sm btn-icon" onclick='openMatrixForm(${JSON.stringify(m)})'>✎</button>
+                <button class="btn btn-danger btn-sm btn-icon" onclick="deleteMatrixEntry('${m.skuId}','${m.supplierId}','${m.destId}')">✕</button>
+              </td>
+            </tr>`;
+          }).join('') :
+          `<tr><td colspan="8"><div class="empty-state"><div class="empty-icon">⊡</div><div class="empty-title">Sin entradas</div></div></td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function openMatrixForm(entry = null) {
+  const db = DB.get();
+  document.getElementById('form-modal-title').textContent = entry ? 'Editar Entrada Matriz' : 'Nueva Entrada Matriz';
+  document.getElementById('form-modal-body').innerHTML = `
+    <div class="form-grid">
+      <div class="form-group"><label>SKU *</label>
+        <select id="f-msku">
+          <option value="">— Seleccionar —</option>
+          ${db.skus.map(s => `<option value="${s.id}" ${entry?.skuId===s.id?'selected':''}>${s.code} — ${s.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>Proveedor *</label>
+        <select id="f-msup">
+          <option value="">— Seleccionar —</option>
+          ${db.suppliers.map(s => `<option value="${s.id}" ${entry?.supplierId===s.id?'selected':''}>${s.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>Destino *</label>
+        <select id="f-mdest">
+          <option value="">— Seleccionar —</option>
+          ${db.destinations.map(d => `<option value="${d.id}" ${entry?.destId===d.id?'selected':''}>${d.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>Lead Time (días)</label><input id="f-mlt" type="number" value="${entry?.leadTime||7}" min="0"></div>
+      <div class="form-group"><label>Peso (%)</label><input id="f-mw" type="number" value="${entry?.weight||25}" min="0" max="100" step="0.1"></div>
+      <div class="form-group"><label>Activo</label>
+        <select id="f-mact">
+          <option value="true" ${entry?.active!==false?'selected':''}>Sí</option>
+          <option value="false" ${entry?.active===false?'selected':''}>No</option>
+        </select>
+      </div>
+    </div>`;
+  formModalCallback = () => {
+    const skuId = document.getElementById('f-msku').value;
+    const supplierId = document.getElementById('f-msup').value;
+    const destId = document.getElementById('f-mdest').value;
+    if (!skuId || !supplierId || !destId) { toast('SKU, Proveedor y Destino son requeridos', 'error'); return; }
+    Admin.saveMatrixEntry({ skuId, supplierId, destId, leadTime: parseFloat(document.getElementById('f-mlt').value)||0, weight: parseFloat(document.getElementById('f-mw').value)||25, active: document.getElementById('f-mact').value === 'true' });
+    closeModal('form-modal');
+    recalcAll(false);
+    renderAdminMatrix();
+    toast('Entrada guardada', 'success');
+  };
+  document.getElementById('form-modal').style.display = 'flex';
+}
+
+function deleteMatrixEntry(skuId, supplierId, destId) {
+  if (!confirm('¿Eliminar esta entrada de la matriz?')) return;
+  Admin.deleteMatrixEntry(skuId, supplierId, destId);
+  recalcAll(false);
+  renderAdminMatrix();
+  toast('Entrada eliminada', 'info');
+}
+
+// ─── ADMIN INVENTARIO ───
+function renderAdminInventory(skuFilter = '', destFilter = '') {
+  const db = DB.get();
+  let items = [...db.inventory];
+  if (skuFilter) items = items.filter(i => i.skuId === skuFilter);
+  if (destFilter) items = items.filter(i => i.destId === destFilter);
+
+  document.getElementById('content').innerHTML = `
+    <div class="section-header">
+      <div><div class="section-title">Inventario</div><div class="section-sub">${db.inventory.length} registros</div></div>
+      <div class="section-actions">
+        <button class="btn btn-primary btn-sm" onclick="openInventoryForm()">+ Nueva Fila</button>
+      </div>
+    </div>
+    <div class="toolbar">
+      <select class="filter-select" id="inv-sku" onchange="renderAdminInventory(this.value, document.getElementById('inv-dest').value)">
+        <option value="">Todos los SKUs</option>
+        ${db.skus.map(s => `<option value="${s.id}" ${skuFilter===s.id?'selected':''}>${s.code}</option>`).join('')}
+      </select>
+      <select class="filter-select" id="inv-dest" onchange="renderAdminInventory(document.getElementById('inv-sku').value, this.value)">
+        <option value="">Todos los destinos</option>
+        ${db.destinations.map(d => `<option value="${d.id}" ${destFilter===d.id?'selected':''}>${d.name}</option>`).join('')}
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>SKU</th><th>Destino</th><th>Inventario</th><th>Comprometido</th><th>En Camino</th><th>Vtas Proy.</th><th>Dem. Diaria</th><th>IRD</th><th></th></tr></thead>
+        <tbody>
+          ${items.length ? items.map(inv => {
+            const sku = db.skus.find(s => s.id === inv.skuId);
+            const dest = db.destinations.find(d => d.id === inv.destId);
+            return `<tr>
+              <td class="bold">${sku?.code || inv.skuId}</td>
+              <td><span class="chip">${dest?.name || inv.destId}</span></td>
+              <td class="mono">${fmtInt(inv.inventory)}</td>
+              <td class="mono">${fmtInt(inv.committedInv)}</td>
+              <td class="mono">${fmtInt(inv.incomingOrders)}</td>
+              <td class="mono">${fmtInt(inv.projectedSales)}</td>
+              <td class="mono">${fmt(inv.dailyDemand, 2)}</td>
+              <td class="mono">${fmt(inv.ird, 4)}</td>
+              <td style="display:flex;gap:6px">
+                <button class="btn btn-ghost btn-sm btn-icon" onclick='openInventoryForm(${JSON.stringify(inv)})'>✎</button>
+                <button class="btn btn-danger btn-sm btn-icon" onclick="deleteInventory('${inv.skuId}','${inv.destId}')">✕</button>
+              </td>
+            </tr>`;
+          }).join('') :
+          `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">≡</div><div class="empty-title">Sin datos de inventario</div></div></td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function openInventoryForm(inv = null) {
+  const db = DB.get();
+  document.getElementById('form-modal-title').textContent = inv ? 'Editar Inventario' : 'Nueva Fila de Inventario';
+  document.getElementById('form-modal-body').innerHTML = `
+    <div class="form-grid">
+      <div class="form-group"><label>SKU *</label>
+        <select id="f-isku">
+          <option value="">— Seleccionar —</option>
+          ${db.skus.map(s => `<option value="${s.id}" ${inv?.skuId===s.id?'selected':''}>${s.code}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>Destino *</label>
+        <select id="f-idest">
+          <option value="">— Seleccionar —</option>
+          ${db.destinations.map(d => `<option value="${d.id}" ${inv?.destId===d.id?'selected':''}>${d.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>Inventario</label><input id="f-iinv" type="number" value="${inv?.inventory||0}" min="0"></div>
+      <div class="form-group"><label>Comprometido</label><input id="f-icom" type="number" value="${inv?.committedInv||0}" min="0"></div>
+      <div class="form-group"><label>En Camino</label><input id="f-iin" type="number" value="${inv?.incomingOrders||0}" min="0"></div>
+      <div class="form-group"><label>Ventas Proyectadas</label><input id="f-ivp" type="number" value="${inv?.projectedSales||0}" min="0"></div>
+      <div class="form-group"><label>Demanda Diaria</label><input id="f-idd" type="number" step="0.01" value="${inv?.dailyDemand||0}" min="0"></div>
+      <div class="form-group"><label>IRD</label><input id="f-iird" type="number" step="0.0001" value="${inv?.ird||0}" min="0"></div>
+    </div>`;
+  formModalCallback = () => {
+    const skuId = document.getElementById('f-isku').value;
+    const destId = document.getElementById('f-idest').value;
+    if (!skuId || !destId) { toast('SKU y Destino son requeridos', 'error'); return; }
+    Admin.saveInventory({ skuId, destId, inventory: parseFloat(document.getElementById('f-iinv').value)||0, committedInv: parseFloat(document.getElementById('f-icom').value)||0, incomingOrders: parseFloat(document.getElementById('f-iin').value)||0, projectedSales: parseFloat(document.getElementById('f-ivp').value)||0, dailyDemand: parseFloat(document.getElementById('f-idd').value)||0, ird: parseFloat(document.getElementById('f-iird').value)||0 });
+    closeModal('form-modal');
+    recalcAll(false);
+    renderAdminInventory();
+    toast('Inventario guardado', 'success');
+  };
+  document.getElementById('form-modal').style.display = 'flex';
+}
+
+function deleteInventory(skuId, destId) {
+  if (!confirm('¿Eliminar este registro de inventario?')) return;
+  const db = DB.get();
+  db.inventory = db.inventory.filter(i => !(i.skuId === skuId && i.destId === destId));
+  DB.save();
+  recalcAll(false);
+  renderAdminInventory();
+  toast('Registro eliminado', 'info');
+}
+
+// ═══════════════════════════════════════════════════════════
+// IMPORTAR EXCEL
+// ═══════════════════════════════════════════════════════════
+function renderImport() {
+  document.getElementById('content').innerHTML = `
+    <div class="section-header">
+      <div><div class="section-title">Importar Excel</div><div class="section-sub">Carga masiva desde .xlsx o .xlsb</div></div>
+    </div>
+
+    <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()"
+      ondragover="event.preventDefault();this.classList.add('drag-over')"
+      ondragleave="this.classList.remove('drag-over')"
+      ondrop="handleDrop(event)">
+      <div class="drop-icon">⊟</div>
+      <div class="drop-title">Arrastre su archivo Excel aquí</div>
+      <div class="drop-sub">O haga clic para seleccionar — .xlsx o .xlsb únicamente</div>
+      <input type="file" id="file-input" accept=".xlsx,.xlsb" style="display:none" onchange="handleFileSelect(this)">
+    </div>
+
+    <div id="import-result" style="margin-top:20px"></div>
+
+    <div class="card" style="margin-top:24px">
+      <div class="card-header"><h3>Hojas esperadas en el archivo</h3></div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
+          ${[
+            ['SKUs',       'Código, Nombre, Categoría, DDI Objetivo, MOQ, IRD'],
+            ['Inventario', 'SKU, Destino, Inventario, Comprometido, En Camino, Demanda Diaria'],
+            ['Proveedores','Proveedor, Nombre, Contacto, Email'],
+            ['Matriz',     'SKU, Proveedor, Destino, Lead Time, Peso (%), Activo'],
+          ].map(([name, cols]) => `
+            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px">
+              <div style="font-weight:700;margin-bottom:4px">${name}</div>
+              <div style="font-size:11px;color:var(--text3)">${cols}</div>
+            </div>`).join('')}
+        </div>
+        <div style="margin-top:16px;font-size:12px;color:var(--text3)">
+          ⚠ Puedes importar hojas parciales. Las hojas faltantes mantienen los datos actuales.
+          Descarga las <a href="#" onclick="navigateTo('templates')" style="color:var(--accent)">plantillas oficiales</a> para asegurar compatibilidad.
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) processImport(file);
+}
+
+function handleFileSelect(input) {
+  if (input.files[0]) processImport(input.files[0]);
+}
+
+async function processImport(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['xlsx','xlsb'].includes(ext)) {
+    toast('Solo se permiten archivos .xlsx o .xlsb', 'error');
+    return;
+  }
+
+  const resultDiv = document.getElementById('import-result');
+  resultDiv.innerHTML = `<div style="display:flex;align-items:center;gap:10px;color:var(--text3)"><div class="spinner"></div> Procesando ${file.name}...</div>`;
+
+  const result = await Importer.importFile(file);
+  recalcAll(false);
+  updateSidebarFooter();
+
+  const importedHtml = Object.entries(result.imported || {}).map(([k,v]) =>
+    `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)">
+      <span style="color:var(--text2)">${k}</span>
+      <span style="font-family:var(--font-mono);color:var(--success)">${v} filas</span>
+    </div>`).join('');
+
+  resultDiv.innerHTML = `
+    <div class="card">
+      <div class="card-header" style="background:${result.success ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)'}">
+        <h3 style="color:${result.success ? 'var(--success)' : 'var(--danger)'}">
+          ${result.success ? '✓ Importación completada' : '⚠ Importación con errores'}
+        </h3>
+      </div>
+      <div class="card-body">
+        ${importedHtml ? `<div style="margin-bottom:16px">${importedHtml}</div>` : ''}
+        ${result.errors.length ? `
+          <div style="background:rgba(239,68,68,0.08);border:1px solid var(--danger)40;border-radius:var(--radius);padding:12px;margin-bottom:12px">
+            <div style="font-weight:600;color:var(--danger);margin-bottom:8px">Errores (${result.errors.length})</div>
+            ${result.errors.map(e => `<div style="font-size:12px;color:var(--text2);font-family:var(--font-mono)">${e}</div>`).join('')}
+          </div>` : ''}
+        ${result.warnings.length ? `
+          <div style="background:rgba(245,158,11,0.08);border:1px solid var(--warning)40;border-radius:var(--radius);padding:12px">
+            <div style="font-weight:600;color:var(--warning);margin-bottom:8px">Advertencias</div>
+            ${result.warnings.map(w => `<div style="font-size:12px;color:var(--text3)">${w}</div>`).join('')}
+          </div>` : ''}
+        ${result.success ? `<button class="btn btn-primary" style="margin-top:12px" onclick="navigateTo('dashboard')">→ Ver Dashboard</button>` : ''}
+      </div>
+    </div>`;
+
+  toast(result.success ? 'Importación completada' : 'Importación con errores', result.success ? 'success' : 'error');
+}
+
+// ═══════════════════════════════════════════════════════════
+// PLANTILLAS
+// ═══════════════════════════════════════════════════════════
+function renderTemplates() {
+  document.getElementById('content').innerHTML = `
+    <div class="section-header">
+      <div><div class="section-title">Plantillas Excel</div><div class="section-sub">Descarga plantillas listas para rellenar e importar</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px">
+      ${[
+        { key: 'completo',    icon: '⊟', title: 'Plantilla Completa',          desc: 'Todas las hojas en un solo archivo (recomendado)', accent: true },
+        { key: 'inventario',  icon: '≡',  title: 'Inventario',                  desc: 'SKU, destino, inventario, demanda diaria' },
+        { key: 'skus',        icon: '▦', title: 'SKUs',                         desc: 'Catálogo de productos con parámetros' },
+        { key: 'proveedores', icon: '◎', title: 'Proveedores',                  desc: 'Información de proveedores' },
+        { key: 'matriz',      icon: '⊡', title: 'Matriz SKU-Prov-Dest',         desc: 'Lead times, pesos y rutas' },
+      ].map(t => `
+        <div class="card ${t.accent ? '' : ''}" style="${t.accent ? 'border-color:var(--accent)' : ''}">
+          <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
+            <div style="font-size:28px">${t.icon}</div>
+            <div>
+              <div style="font-size:14px;font-weight:700;margin-bottom:4px">${t.title}</div>
+              <div style="font-size:12px;color:var(--text3)">${t.desc}</div>
+            </div>
+            <button class="btn btn-${t.accent ? 'primary' : 'secondary'} btn-sm" onclick="downloadTemplate('${t.key}')">
+              ↓ Descargar ${t.title}
+            </button>
+          </div>
+        </div>`).join('')}
+    </div>
+
+    <div class="card" style="margin-top:24px">
+      <div class="card-header"><h3>Instrucciones de uso</h3></div>
+      <div class="card-body">
+        <ol style="font-size:13px;color:var(--text2);line-height:1.9;padding-left:20px">
+          <li>Descarga la <strong>Plantilla Completa</strong> (recomendado)</li>
+          <li>Rellena cada hoja con tus datos reales — usa los ejemplos como guía</li>
+          <li>Los IDs se generan automáticamente desde el código (SKU, Proveedor, Destino)</li>
+          <li>En la hoja <strong>Matriz</strong>, los pesos son relativos y se normalizan automáticamente por destino</li>
+          <li>Guarda el archivo con el mismo nombre o uno nuevo (.xlsx)</li>
+          <li>Ve a <strong>Importar Excel</strong> y carga tu archivo</li>
+          <li>El sistema recalculará automáticamente todos los indicadores DDI</li>
+        </ol>
+      </div>
+    </div>
+  `;
+}
+
+function downloadTemplate(type) {
+  Exporter.generateTemplate(type);
+  toast('Plantilla descargada', 'success');
+}
+
+// ═══════════════════════════════════════════════════════════
+// EXPORTAR
+// ═══════════════════════════════════════════════════════════
+function exportResults() {
+  if (!cachedResults.length) {
+    toast('No hay datos para exportar', 'warning');
+    return;
+  }
+  Exporter.exportResults(cachedResults);
+  toast('Exportación descargada', 'success');
+}
+
+// ═══════════════════════════════════════════════════════════
+// UTILIDADES UI
+// ═══════════════════════════════════════════════════════════
+function closeModal(id) {
+  document.getElementById(id).style.display = 'none';
+  formModalCallback = null;
+}
+
+function formModalSave() {
+  if (formModalCallback) formModalCallback();
+}
+
+// Cerrar modal al click afuera
+document.querySelectorAll('.modal-overlay').forEach(el => {
+  el.addEventListener('click', (e) => {
+    if (e.target === el) el.style.display = 'none';
+  });
+});
+
+function toast(msg, type = 'info', duration = 3000) {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = `toast toast-${type}`;
+  const icons = { success: '✓', error: '✕', warning: '⚠', info: '◉' };
+  t.innerHTML = `<span style="color:var(--${type === 'error' ? 'danger' : type === 'warning' ? 'warning' : type === 'success' ? 'success' : 'accent'})">${icons[type]}</span><span>${msg}</span>`;
+  c.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity 0.3s'; setTimeout(() => t.remove(), 300); }, duration);
+}
+
+function openSidebar() {
+  document.getElementById('sidebar').classList.add('open');
+  document.getElementById('sidebar-overlay').classList.add('show');
+}
+
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('show');
+}
+
+// Keyboard shortcut ESC para cerrar modales
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none');
+  }
+});
+</script>
+</body>
+</html>

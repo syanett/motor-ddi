@@ -1,0 +1,26 @@
+# Sistema operativo
+.DS_Store
+Thumbs.db
+*.log
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Node (si algún día se agrega)
+node_modules/
+npm-debug.log
+
+# Compilación (si se agrega)
+dist/
+build/
+
+# Archivos temporales
+.temp/
+*.tmp
+
+# Todos los demás archivos HTML/CSS/JS/XLSX en el directorio son necesarios
+# para esta aplicación, así que no se ignoran.
