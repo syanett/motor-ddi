@@ -1,45 +1,52 @@
-# Motor DDI — Sistema de Reabastecimiento por Inventario
+# Motor DDI v2.0 — Sistema de Reabastecimiento por Inventario
 
-## Descripción
-
-Motor DDI es una aplicación web 100% estática para gestión de reabastecimiento basado en **Días de Inventario (DDI)**. Funciona completamente en el navegador sin necesidad de servidor, backend ni base de datos externa. Deployable en GitHub Pages.
+Aplicación web 100 % estática para gestión de reabastecimiento basada en **Días de Inventario (DDI)** con proyección semanal visual tipo heatmap. Sin servidor, sin backend, sin instalación. Deployable en GitHub Pages.
 
 ---
 
-## Estructura del Proyecto
+## Estructura del proyecto
 
 ```
-/
-├── index.html          ← Aplicación completa (UI + lógica de interfaz)
+motor-ddi/
+├── index.html          ← Aplicación completa (UI + controlador)
+├── motor.js            ← Motor de cálculo, DB, importador, exportador
 ├── styles.css          ← Estilos y tema visual
-├── motor.js            ← Motor de cálculo, DB, importador y exportador
 ├── templates/
-│   └── Plantilla_Motor_DDI.xlsx   ← Plantilla Excel oficial
-├── assets/             ← Recursos estáticos adicionales
-└── README.md           ← Este archivo
+│   └── Plantilla_Motor_DDI_v2.xlsx
+├── README.md
+├── GITHUB_RAPIDO.md
+├── CHANGELOG.md
+├── FAQ.md
+└── CHECKLIST.md
 ```
 
 ---
 
-## Instalación y Despliegue
+## Vistas de la aplicación
 
-### Local
-Simplemente abre `index.html` en cualquier navegador moderno.  
-No requiere servidor, npm, ni instalación alguna.
-
-### GitHub Pages
-1. Sube todos los archivos a un repositorio GitHub
-2. Ve a Settings → Pages → Source: main branch / root
-3. Accede a `https://tu-usuario.github.io/nombre-repo/`
+| Vista | Descripción |
+|-------|-------------|
+| **Dashboard** | KPIs globales, distribución DDI, alertas críticas, próximos pedidos |
+| **Heatmap Semanal** | Matriz SKU × Destino coloreada por DDI en 10 semanas futuras |
+| **Reabastecimiento** | Tabla completa con compras sugeridas y semana de primer riesgo |
+| **Por Proveedor** | Consolidado de pedidos agrupados por proveedor |
+| **Pedidos en Camino** | CRUD de pedidos con fecha exacta de llegada |
+| **SKUs** | CRUD de productos |
+| **Destinos** | CRUD de bodegas / centros de distribución |
+| **Proveedores** | CRUD de proveedores |
+| **Matriz SKU-Prov-Dest** | Lead times, pesos y rutas de abastecimiento |
+| **Inventario** | Niveles de inventario y demanda por SKU+Destino |
+| **Importar Excel** | Carga masiva desde .xlsx / .xlsb |
+| **Plantillas** | Descarga de plantillas oficiales |
 
 ---
 
-## Fórmulas del Motor
+## Fórmulas del motor
 
 ### DDI Actual
 ```
+Inventario Disponible = Inventario − Comprometido
 DDI = Inventario Disponible / Demanda Diaria
-Inventario Disponible = Inventario - Inventario Comprometido
 ```
 
 ### Inventario Objetivo
@@ -49,42 +56,220 @@ Inventario Objetivo = Demanda Diaria × DDI Objetivo
 
 ### Inventario Proyectado (al momento de llegada)
 ```
-Inventario Proyectado = Inventario Actual
-                      - (Demanda Diaria × Lead Time)
-                      + Pedidos en Camino
+Inventario Proyectado = Inventario Disponible
+                      − (Demanda Diaria × Lead Time)
+                      + Pedidos que llegan antes del corte
 ```
 
 ### Compra Sugerida
 ```
-Compra Bruta = Inventario Objetivo - Inventario Proyectado
-Compra Sugerida = MAX(0, TECHO(Compra Bruta / MOQ) × MOQ)
+Compra Bruta = Inventario Objetivo − Inventario Proyectado
+Compra Final = MAX(0, TECHO(Compra Bruta / MOQ) × MOQ)
 ```
 
-### Normalización de Pesos de Proveedores
-Los pesos se definen a nivel global pero se normalizan por destino:
+### Proyección Semanal (por semana k)
 ```
-Peso Normalizado(Prov_i, Dest) = Peso(Prov_i) / Σ Pesos(proveedores activos para Dest)
+Pedidos acumulados(k) = Σ pedidos con fecha ≤ fin de semana k
+Inventario final(k)   = Inv. Disponible
+                       − (Demanda Diaria × días hasta fin semana k)
+                       + Pedidos acumulados(k)
+DDI proyectado(k)     = Inventario final(k) / Demanda Diaria
+```
+
+### Normalización de pesos por destino
+```
+Peso normalizado(Prov_i, Dest) =
+    Peso(Prov_i) / Σ Pesos(proveedores activos para ese destino)
 ```
 
 **Ejemplo:**
-- Configuración global: A=25%, B=25%, C=25%, D=25%
-- Para Bogotá solo sirven C y D (activos)
+- Global: A=25%, B=25%, C=25%, D=25%
+- Para Bogotá solo están activos C y D
 - Normalizado: C=50%, D=50%
 
 ---
 
-## Escala de Colores DDI
+## Escala de colores DDI
 
-| Rango        | Color       | Estado       |
-|-------------|-------------|--------------|
-| DDI < 0      | 🔴 Rojo     | Crítico      |
-| 0 – 7 días   | 🟠 Naranja  | Muy Bajo     |
-| 7 – 14 días  | 🟡 Amarillo | Bajo         |
-| 14 – 21 días | 🟢 Verde    | Normal       |
-| 21 – 30 días | 🔵 Azul     | Adecuado     |
-| 30 – 45 días | 🔵 Celeste  | Bueno        |
-| 45 – 60 días | 🫒 Oliva    | Exceso Leve  |
-| > 60 días    | ⚫ Negro    | Exceso       |
+| Rango | Color | Estado |
+|-------|-------|--------|
+| DDI < 0 | 🔴 Rojo `#dc2626` | Crítico — quiebre de stock |
+| 0 – 7 días | 🟠 Naranja `#ea580c` | Muy Bajo — riesgo inmediato |
+| 7 – 14 días | 🟡 Amarillo `#ca8a04` | Bajo |
+| 14 – 21 días | 🟢 Verde claro `#16a34a` | Normal |
+| 21 – 30 días | 🔵 Azul `#2563eb` | Adecuado |
+| 30 – 45 días | 🩵 Celeste `#0284c7` | Bueno |
+| 45 – 60 días | 🫒 Verde oliva `#65a30d` | Exceso leve |
+| > 60 días | ⚫ Negro `#292524` | Exceso |
+
+Estos colores se usan en: heatmap, badges DDI, barras de progreso, filas de tabla.
+
+---
+
+## Estructura de datos (localStorage)
+
+Clave: `replenishment_db_v2`
+
+```json
+{
+  "skus": [
+    {
+      "id": "tend001",
+      "code": "TEND001",
+      "name": "Tendidos",
+      "description": "Tendidos doble plaza",
+      "category": "Ropa de Cama",
+      "targetDDI": 30,
+      "moq": 10,
+      "active": true
+    }
+  ],
+  "destinations": [
+    { "id": "galapa", "name": "Galapa", "active": true },
+    { "id": "bogota", "name": "Bogotá", "active": true }
+  ],
+  "suppliers": [
+    {
+      "id": "prov_a",
+      "name": "Textilería Andina",
+      "contact": "Ana López",
+      "email": "ana@textileria.co",
+      "active": true
+    }
+  ],
+  "matrix": [
+    {
+      "skuId": "tend001",
+      "supplierId": "prov_a",
+      "destId": "galapa",
+      "leadTime": 5,
+      "weight": 25,
+      "active": true
+    }
+  ],
+  "inventory": [
+    {
+      "skuId": "tend001",
+      "destId": "galapa",
+      "inventory": 500,
+      "committedInv": 50,
+      "dailyDemand": 15,
+      "ird": 0.033
+    }
+  ],
+  "orders": [
+    {
+      "id": "ord_abc123",
+      "skuId": "tend001",
+      "destId": "galapa",
+      "supplierId": "prov_a",
+      "qty": 200,
+      "arrivalDate": "2026-06-15",
+      "notes": "OC-2026-001"
+    }
+  ],
+  "params": [],
+  "meta": {
+    "lastImport": "2026-06-03T10:00:00.000Z",
+    "version": "2.0"
+  }
+}
+```
+
+---
+
+## API del motor (`motor.js`)
+
+### `DB` — Base de datos local
+
+| Método | Descripción |
+|--------|-------------|
+| `DB.load()` | Carga datos de localStorage |
+| `DB.save()` | Persiste datos en localStorage |
+| `DB.get()` | Retorna el objeto de datos actual |
+| `DB.reset()` | Borra todos los datos y restaura defaults |
+
+### `DateUtils` — Utilidades de fecha
+
+| Método | Retorna | Descripción |
+|--------|---------|-------------|
+| `DateUtils.today()` | `Date` | Hoy al inicio del día |
+| `DateUtils.parse('YYYY-MM-DD')` | `Date` | Parsea string a Date |
+| `DateUtils.toISO(date)` | `string` | Formatea Date a `YYYY-MM-DD` |
+| `DateUtils.toShort(date)` | `string` | Formatea Date a `dd-mmm` |
+| `DateUtils.diffDays(a, b)` | `number` | Días entre dos fechas |
+| `DateUtils.weekStart(date)` | `Date` | Lunes de la semana de una fecha |
+| `DateUtils.addDays(date, n)` | `Date` | Suma N días a una fecha |
+| `DateUtils.getWeeks(n)` | `Array` | Próximas N semanas desde hoy |
+
+### `Engine` — Motor de cálculo DDI
+
+| Método | Descripción |
+|--------|-------------|
+| `getDDIColor(ddi)` | Retorna `{color, label, bg}` según el valor DDI |
+| `calcDDI(inv, demand)` | DDI = inventario / demanda diaria |
+| `calcTargetInventory(demand, targetDDI)` | Inventario objetivo |
+| `getTotalIncoming(skuId, destId)` | Suma de pedidos futuros en camino |
+| `calcProjectedAtDays(skuId, destId, days)` | Inventario proyectado en N días |
+| `calcWeeklyProjection(skuId, destId, weeks)` | **Array de proyección semanal** |
+| `normalizeSupplierWeights(skuId, destId)` | Pesos normalizados por destino |
+| `calcSupplierDistribution(skuId, destId, qty)` | Distribución de compra por proveedor |
+| `calcProjectedDDI(inv, demand, lt, inc, purchase)` | DDI tras recibir la compra |
+| `calcRow(skuId, destId)` | Todos los indicadores para un SKU+Destino |
+| `calcAll()` | Calcula todas las combinaciones activas |
+
+**`calcWeeklyProjection` retorna por cada semana:**
+```js
+{
+  weekStart, weekEnd,       // Date objects
+  label,                    // "14-jun"
+  labelFull,                // "9-jun – 15-jun"
+  daysToEnd,                // días desde hoy hasta el domingo
+  projInv,                  // inventario al final del domingo
+  projDDI,                  // DDI proyectado
+  ddiColor,                 // { color, label, bg }
+  isAtRisk,                 // projDDI <= 7
+  isCritical,               // projDDI <= 0
+  targetDDI,
+  ordersThisWeek,           // pedidos que llegan esta semana
+  ordersAccumulated,        // total acumulado hasta esta semana
+  weeklyConsumption         // demanda semanal en unidades
+}
+```
+
+### `Importer` — Importador Excel
+
+| Método | Descripción |
+|--------|-------------|
+| `readFile(file)` | Lee archivo .xlsx/.xlsb y retorna hojas como JSON |
+| `processSKUs(rows)` | Valida y normaliza hoja SKUs |
+| `processInventory(rows)` | Valida y normaliza hoja Inventario |
+| `processSuppliers(rows)` | Valida y normaliza hoja Proveedores |
+| `processMatrix(rows)` | Valida y normaliza hoja Matriz |
+| `processOrders(rows)` | **Valida y normaliza hoja Pedidos** (v2) |
+| `importFile(file)` | Importa el archivo completo y actualiza DB |
+
+### `Exporter` — Exportador Excel
+
+| Método | Descripción |
+|--------|-------------|
+| `exportResults(results)` | Exporta resumen + proyección semanal + distribución |
+| `generateTemplate(type)` | Genera plantilla descargable |
+
+Tipos de plantilla: `'completo'`, `'skus'`, `'inventario'`, `'proveedores'`, `'matriz'`, `'pedidos'`
+
+### `Admin` — CRUD de entidades
+
+| Método | Descripción |
+|--------|-------------|
+| `saveSKU(sku)` / `deleteSKU(id)` | Crear o eliminar SKU |
+| `saveDestination(dest)` / `deleteDestination(id)` | Crear o eliminar destino |
+| `saveSupplier(s)` / `deleteSupplier(id)` | Crear o eliminar proveedor |
+| `saveMatrixEntry(e)` / `deleteMatrixEntry(sku,sup,dest)` | Gestionar matriz |
+| `saveInventory(inv)` | Guardar inventario por SKU+Destino |
+| `saveParams(p)` | Guardar parámetros operativos |
+| `saveOrder(order)` / `deleteOrder(id)` | **Gestionar pedidos con fecha** (v2) |
+| `getOrdersFor(skuId, destId)` | Pedidos de un SKU+Destino específico |
 
 ---
 
@@ -92,109 +277,116 @@ Peso Normalizado(Prov_i, Dest) = Peso(Prov_i) / Σ Pesos(proveedores activos par
 
 ### Hojas soportadas
 
-| Hoja        | Columnas requeridas                                                      |
-|-------------|--------------------------------------------------------------------------|
-| `SKUs`      | SKU, Nombre, Descripción, Categoría, DDI Objetivo, MOQ, IRD             |
-| `Inventario`| SKU, Destino, Inventario, Inv. Comprometido, Pedidos en Camino, Demanda Diaria |
-| `Proveedores` | Proveedor, Nombre, Contacto, Email                                    |
-| `Matriz`    | SKU, Proveedor, Destino, Lead Time (días), Peso (%), Activo             |
+| Hoja | Columnas requeridas | Columnas opcionales |
+|------|---------------------|---------------------|
+| `SKUs` | SKU, Nombre | Descripción, Categoría, DDI Objetivo, MOQ, IRD |
+| `Inventario` | SKU, Destino | Inventario, Comprometido, Demanda Diaria, IRD |
+| `Proveedores` | Proveedor | Nombre, Contacto, Email |
+| `Matriz` | SKU, Proveedor, Destino | Lead Time (días), Peso (%), Activo |
+| `Pedidos` | SKU, Destino, Cantidad, Fecha Llegada | Proveedor, Notas |
 
-### Notas importantes
-- Solo se aceptan archivos `.xlsx` o `.xlsb`
-- Los IDs se generan automáticamente normalizando el texto a minúsculas
-- Puedes importar hojas parciales (los datos existentes se conservan para hojas no incluidas)
-- Los pesos de la Matriz son relativos y se normalizan automáticamente por destino
+### Formato de fechas en la hoja Pedidos
+- Formato preferido: `YYYY-MM-DD` → `2026-06-15`
+- También acepta: `DD/MM/YYYY` → `15/06/2026`
 
----
-
-## Vistas de la Aplicación
-
-| Vista                  | Descripción                                              |
-|------------------------|----------------------------------------------------------|
-| **Dashboard**          | KPIs globales, distribución DDI, alertas críticas        |
-| **Reabastecimiento**   | Tabla completa con compras sugeridas y filtros           |
-| **Por Proveedor**      | Resumen de pedidos agrupados por proveedor               |
-| **Administrar SKUs**   | CRUD de productos                                        |
-| **Administrar Destinos** | CRUD de bodegas/centros de distribución               |
-| **Administrar Proveedores** | CRUD de proveedores                               |
-| **Matriz SKU-Prov-Dest** | Gestión de lead times, pesos y rutas                  |
-| **Inventario**         | Edición manual de niveles de inventario y demanda        |
-| **Importar Excel**     | Carga masiva desde archivo .xlsx                         |
-| **Plantillas**         | Descarga de plantillas oficiales                         |
+### Comportamiento de importación
+- Se pueden importar hojas parciales (las no incluidas mantienen sus datos actuales)
+- Los IDs se generan normalizando el texto a minúsculas con guiones bajos
+- Los pesos de la Matriz son relativos y se normalizan por destino automáticamente
+- Solo `.xlsx` y `.xlsb` son aceptados
 
 ---
 
-## Persistencia de Datos
+## Heatmap semanal
 
-Los datos se almacenan en `localStorage` del navegador bajo la clave `replenishment_db_v1`.
+La vista más importante de la aplicación v2:
 
-**Estructura:**
-```json
-{
-  "skus":        [...],
-  "destinations":[...],
-  "suppliers":   [...],
-  "matrix":      [...],
-  "inventory":   [...],
-  "params":      [...],
-  "meta":        { "lastImport": "...", "version": "1.0" }
-}
+- **Filas** = cada combinación SKU × Destino
+- **Columnas** = 10 semanas a partir de hoy (con inicio el lunes)
+- **Columna "Hoy"** = DDI e inventario disponible actual
+- **Cada celda** = DDI proyectado al final del domingo de esa semana
+- **Color** = escala DDI (rojo crítico → negro exceso)
+- **Punto blanco** = hay uno o más pedidos que llegan en esa semana
+- **Tooltip** al pasar el cursor = detalle completo de la semana
+
+### Lectura del heatmap
+1. Escanea de izquierda a derecha en cada fila
+2. Una celda que cambia de verde/azul a naranja/rojo indica la semana de riesgo
+3. Un punto blanco en una semana roja significa que hay un pedido que llega justo a tiempo (o tarde)
+4. Haz clic en el SKU (columna izquierda) para ver el desglose completo
+
+---
+
+## Pedidos en camino (v2)
+
+A diferencia de v1 (donde era un número total), en v2 cada pedido tiene:
+
+```
+SKU + Destino + Proveedor + Cantidad + Fecha exacta de llegada + Notas
 ```
 
-Para resetear todos los datos: abre la consola del navegador y ejecuta:
-```javascript
-localStorage.removeItem('replenishment_db_v1'); location.reload();
-```
+Esto permite:
+- Saber exactamente en qué semana llega cada pedido
+- Ver el impacto de cada pedido en el heatmap (punto blanco)
+- Detectar si un pedido llega demasiado tarde (semana ya en rojo antes de la llegada)
+- Calcular el DDI proyectado con precisión diaria
 
 ---
 
 ## Exportación
 
-El botón **↓ Exportar** genera un archivo Excel con:
-- **Hoja Resumen**: todos los indicadores por SKU+Destino
-- **Hoja Distribución**: cantidades por proveedor con lead times y pesos
+El botón **↓ Exportar** genera un Excel con tres hojas:
+
+| Hoja | Contenido |
+|------|-----------|
+| `Resumen` | Todos los indicadores por SKU+Destino incluyendo semana de riesgo |
+| `Proyección Semanal` | Inventario y DDI de cada SKU+Destino para las próximas 10 semanas |
+| `Distribución` | Cantidades a pedir por proveedor con lead times y pesos |
+
+---
+
+## Persistencia y backup
+
+Los datos viven en `localStorage` del navegador bajo la clave `replenishment_db_v2`.
+
+**Para hacer backup:**
+```
+Exportar → descarga el Excel con proyección semanal
+```
+
+**Para resetear todo:**
+```js
+// En la consola del navegador (F12):
+localStorage.removeItem('replenishment_db_v2');
+location.reload();
+```
+
+**Para migrar entre navegadores o equipos:**
+1. Exportar desde el equipo origen
+2. Importar el Excel en el equipo destino
 
 ---
 
 ## Tecnologías
 
-| Tecnología | Uso |
-|------------|-----|
-| HTML5      | Estructura de la aplicación |
-| CSS3       | Estilos y tema visual |
-| JavaScript (ES6+) | Motor de cálculo, UI y lógica |
-| [SheetJS (xlsx)](https://sheetjs.com/) | Importación y exportación Excel |
-| LocalStorage | Persistencia de datos |
+| Tecnología | Versión | Uso |
+|------------|---------|-----|
+| HTML5 | — | Estructura |
+| CSS3 | — | Estilos y animaciones |
+| JavaScript ES2020+ | — | Motor, UI, lógica |
+| [SheetJS (xlsx)](https://sheetjs.com/) | 0.18.5 | Importar/exportar Excel |
+| localStorage | — | Persistencia de datos |
+
+**Dependencias externas:** solo SheetJS vía CDN. Sin frameworks, sin Node.js, sin build steps.
 
 ---
 
-## Datos de Demo
+## Despliegue en GitHub Pages
 
-Al abrir la app por primera vez, se cargan automáticamente datos de demostración con:
-- 6 SKUs (Tendidos, Almohadas, Sábanas, Cobijas, Colchones, Cojines)
-- 2 destinos (Galapa, Bogotá)
-- 4 proveedores con diferentes rutas y lead times
-- Inventarios realistas para explorar todos los estados DDI
+Ver `GITHUB_RAPIDO.md` para instrucciones paso a paso.
+
+**URL de producción:** `https://TU_USUARIO.github.io/motor-ddi/`
 
 ---
 
-## Flujo de Trabajo Recomendado
-
-1. **Primera configuración:**
-   - Descarga la plantilla Excel completa desde *Plantillas*
-   - Rellena las hojas SKUs, Proveedores, Inventario y Matriz
-   - Importa desde *Importar Excel*
-
-2. **Operación diaria:**
-   - Actualiza los inventarios desde *Administrar → Inventario* o re-importando la hoja Inventario
-   - Revisa el *Dashboard* para alertas críticas
-   - Consulta *Reabastecimiento* para las órdenes de compra sugeridas
-   - Exporta el archivo para enviarlo a compras
-
-3. **Mantenimiento:**
-   - Gestiona proveedores, destinos y SKUs desde las vistas Admin
-   - Ajusta los pesos y lead times en la Matriz según condiciones actuales
-
----
-
-*Motor DDI v1.0 — Desarrollado como aplicación web estática*
+*Motor DDI v2.0 — Proyección semanal + Heatmap + Pedidos con fechas*

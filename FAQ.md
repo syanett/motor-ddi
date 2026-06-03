@@ -1,312 +1,182 @@
-# ❓ Preguntas Frecuentes
-
-## Configuración y Despliegue
-
-### ¿Necesito tener Git instalado?
-
-**No es obligatorio.** Puedes subir los archivos directamente desde GitHub sin terminal:
-
-1. Ve a tu repositorio
-2. Haz clic en **Add file** → **Upload files**
-3. Arrastra los 5 archivos
-
-Git es más rápido para actualizaciones futuras, pero no es necesario inicialmente.
+# ❓ Preguntas Frecuentes — Motor DDI v2
 
 ---
 
-### ¿Puedo usar mi propio dominio personalizado?
+## Heatmap Semanal
 
-**Sí.** En **Settings → Pages → Custom domain**, escribe tu dominio (ej: `motor-ddi.miempresa.com`).
+### ¿Qué significa el punto blanco en una celda?
+Indica que hay uno o más pedidos en camino que **llegan durante esa semana específica**. Pasa el cursor sobre la celda para ver el detalle de los pedidos.
 
-Necesitas apuntar los registros DNS de tu dominio a GitHub. [Docs completas](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site).
+### ¿El heatmap muestra días exactos o semanas completas?
+**Semanas completas.** Cada columna representa del lunes al domingo de esa semana. El inventario mostrado es el proyectado al final del domingo (fin de semana).
+
+### Una celda es verde pero tiene punto blanco. ¿Está bien?
+Sí, significa que incluso sin el pedido el inventario estaría bien, y el pedido es un refuerzo adicional. Si la celda fuera roja con punto blanco, el pedido llega cuando ya hay quiebre.
+
+### ¿Por qué la primera columna ("Hoy") es diferente?
+Muestra el **DDI e inventario actuales** (sin proyección), sirve como punto de partida para leer la evolución semanal de izquierda a derecha.
+
+### ¿Cuántas semanas muestra el heatmap?
+10 semanas desde la semana actual. Las semanas empiezan el lunes.
+
+### ¿Cómo identifico el momento exacto de quiebre?
+Busca la primera celda roja en cada fila. En el tooltip verás el DDI exacto. También puedes usar la vista **Reabastecimiento** que muestra la columna "Riesgo en" con la semana exacta.
 
 ---
 
-### ¿La app funciona sin internet?
+## Pedidos en Camino
 
-**Parcialmente.** Después de que se carga por primera vez, los datos se guardan en **localStorage** del navegador, así que sí funciona sin internet **mientras tengas datos cargados**.
+### ¿Qué diferencia hay entre v1 y v2 en pedidos?
+- **v1:** un número plano (`incomingOrders: 150`) — no se sabía cuándo llegaba
+- **v2:** registros individuales con fecha (`arrivalDate: "2026-06-15"`) — se ve en qué semana impacta el inventario
 
-Sin embargo, necesitas internet para:
-- Cargar SheetJS (para importar Excel)
-- Descargar plantillas
+### ¿Puedo tener varios pedidos del mismo SKU+Destino?
+Sí. Puedes tener múltiples pedidos del mismo SKU+Destino con fechas distintas. Todos se suman correctamente en la proyección semanal.
 
-**Solución:** descarga la plantilla una vez, desconéctate, y usa la app normalmente.
+### ¿Qué pasa si un pedido ya llegó?
+Los pedidos con `arrivalDate < hoy` no se incluyen en los cálculos. Puedes eliminarlos manualmente desde **Pedidos en Camino** o simplemente dejarlos (no afectan los números).
+
+### ¿Puedo importar los pedidos desde Excel?
+Sí. Usa la hoja `Pedidos` de la Plantilla Completa v2 con columnas:
+```
+SKU | Destino | Proveedor | Cantidad | Fecha Llegada | Notas
+```
+La fecha debe estar en formato `YYYY-MM-DD` o `DD/MM/YYYY`.
+
+### El badge de días muestra un número negativo. ¿Por qué?
+Significa que el pedido tiene fecha en el pasado. El sistema lo excluye del cálculo automáticamente. Puedes actualizar la fecha o eliminar el pedido.
 
 ---
 
-### ¿Puedo tener múltiples repos de Motor DDI en GitHub?
+## Cálculos DDI
 
-**Sí.** Cada uno tendría su URL:
-- `motor-ddi-galapa` → `https://usuario.github.io/motor-ddi-galapa/`
-- `motor-ddi-bogota` → `https://usuario.github.io/motor-ddi-bogota/`
+### ¿Por qué la compra sugerida es 0 si tengo DDI bajo?
+Puede ocurrir si el **inventario proyectado** (considerando pedidos en camino) ya cubre el objetivo. Revisa la columna "Pedidos en Camino" y "Inv. Proyectado" en la vista Reabastecimiento.
 
-Los datos de cada uno son independientes (localStorage separado).
+### ¿Qué es el lead time promedio?
+Es el promedio ponderado de los lead times de los proveedores activos para ese SKU+Destino, usando los pesos normalizados. Si el proveedor A tiene LT=5d con peso 60% y B tiene LT=10d con peso 40%, el LT promedio es `5×0.6 + 10×0.4 = 7 días`.
+
+### ¿Por qué el DDI proyectado puede ser diferente al DDI de la semana de llegada en el heatmap?
+- **DDI proyectado** (tabla Reabastecimiento): usa el lead time promedio como días hasta la llegada
+- **Heatmap**: usa fechas exactas de los pedidos registrados en la tabla `orders`
+
+Si los pedidos están cargados correctamente, ambos deberían ser similares.
+
+### ¿Qué es el IRD?
+**Índice de Rotación Diaria.** Es un indicador de qué fracción del inventario se vende cada día: `IRD = Demanda Diaria / Inventario`. Actualmente se almacena como dato informativo y se muestra en las tablas, pero no entra directamente en los cálculos de reabastecimiento.
+
+### ¿Qué pasa si la demanda diaria es 0?
+El DDI muestra `—` (sin datos). La compra sugerida será 0. Actualiza la demanda desde **Administrar → Inventario**.
+
+---
+
+## Proveedores y Pesos
+
+### ¿Cómo funciona la normalización de pesos?
+Los pesos son **relativos** por destino. Solo se consideran los proveedores marcados como `Activo = Sí` en la Matriz para ese destino específico.
+
+```
+Ejemplo global:   A=25%, B=25%, C=25%, D=25%
+Bogotá solo C y D activos:
+  C normalizado = 25 / (25+25) = 50%
+  D normalizado = 25 / (25+25) = 50%
+```
+
+### ¿Puedo asignar el 100% a un solo proveedor?
+Sí. Pon el proveedor con `Peso = 100` y todos los demás con `Activo = No`, o simplemente crea solo una entrada en la Matriz para ese SKU+Destino.
+
+### ¿Qué pasa si todos los proveedores de un SKU+Destino están inactivos?
+La compra sugerida se calcula igual, pero la distribución estará vacía. Se mostrará "Sin proveedores activos" en el detalle.
+
+---
+
+## Importación y Plantillas
+
+### ¿Puedo importar solo una hoja y no todas?
+Sí. Si el archivo solo tiene la hoja `Inventario`, solo se actualizan los inventarios. El resto de datos se conserva.
+
+### Los IDs de mi Excel no coinciden con los de la app. ¿Qué hago?
+Los IDs se generan normalizando el texto: minúsculas, espacios → guiones bajos.
+- `"TEND001"` → ID `tend001`
+- `"Proveedor A"` → ID `proveedor_a`
+- `"Bogotá"` → ID `bogotá` (con tilde)
+
+Para evitar problemas, usa códigos sin tildes y sin espacios: `TEND001`, `PROV_A`, `GALAPA`.
+
+### El Excel se importa pero no aparecen los cálculos.
+Revisa que:
+1. La hoja `SKUs` tiene datos
+2. La hoja `Inventario` tiene datos con columna `Demanda Diaria` > 0
+3. La Matriz tiene entradas activas para los SKUs y destinos
+
+Sin demanda diaria no hay DDI. Sin matriz no hay lead time.
 
 ---
 
 ## Datos y Persistencia
 
-### ¿Dónde se guardan los datos?
+### ¿Mis datos se pierden si actualizo la app?
+**No.** Los datos están en `localStorage` del navegador, no en los archivos de GitHub. Actualizar `index.html` o `motor.js` no borra los datos.
 
-En **localStorage** del navegador local. NO se sincronizan a GitHub automáticamente.
+### ¿Cómo hago backup?
+Ve a cualquier vista → botón **↓ Exportar**. Descarga el Excel con todos los indicadores y la proyección semanal. Guárdalo como respaldo.
 
-Si necesitas backup:
-- Ve a **Exportar** → descarga el Excel con los resultados actuales
-- Re-importa en otra máquina
+### ¿Cómo comparto los datos con un colega?
+1. Exporta el Excel desde tu navegador
+2. Tu colega lo importa desde la misma URL de la app
+3. Sus datos locales se actualizarán
 
----
+La app no sincroniza en tiempo real entre usuarios — cada uno tiene su copia local.
 
-### ¿Puedo perder mis datos?
-
-**Riesgos:**
-- Limpiar caché/cookies del navegador → pierdes los datos
-- Cambiar de navegador → datos no siguen (Chrome ≠ Firefox)
-- Cambiar de PC → datos no siguen
-- Usar modo privado/incógnito → datos se pierden al cerrar
-
-**Solución:** exporta regularmente a Excel como backup.
-
----
-
-### ¿Cómo hago backup de mis datos?
-
-1. Ve a **Reabastecimiento** o **Dashboard**
-2. Haz clic en **↓ Exportar**
-3. Se descarga `reabastecimiento_YYYY-MM-DD.xlsx`
-
-Guarda este archivo en un lugar seguro.
-
----
-
-### ¿Cómo restauro datos desde backup?
-
-1. Ve a **Importar Excel**
-2. Carga el archivo que exportaste
-3. El sistema recalcula automáticamente
-
----
-
-## Operación y Uso
-
-### ¿Puedo editar directamente desde la tabla?
-
-**No.** Pero puedes:
-- Editar desde **Administrar → Inventario** (edición individual)
-- Importar una hoja de Excel actualizada (edición masiva)
-
----
-
-### ¿Cuántos SKUs puedo tener?
-
-**Teoricamente ilimitados** (hasta llenar localStorage, que típicamente es 5-10 MB).
-
-Realísticamente, la UI funciona bien con 100-200 SKUs. Con 1000+ podrías notar lentitud en los filtros.
-
----
-
-### ¿Cuántos proveedores puedo asignar a un SKU?
-
-**Ilimitados.** Pero la normalización de pesos funciona mejor con 2-4 proveedores por destino.
-
----
-
-### ¿Qué pasa si desactivo un proveedor en la Matriz?
-
-El sistema automáticamente:
-- Lo excluye de los cálculos de distribución
-- Normaliza los pesos entre los activos restantes
-- No genera órdenes de compra para ese proveedor
-
----
-
-## Troubleshooting Técnico
-
-### La página dice "404 Not Found"
-
-**Causa 1:** GitHub Pages aún no ha procesado
-- **Solución:** espera 2-3 minutos, recarga con Ctrl+Shift+R
-
-**Causa 2:** archivo `index.html` no está en la raíz
-- **Solución:** asegúrate de que `index.html` está en la carpeta raíz del repositorio, no en una subcarpeta
-
-**Causa 3:** rama equivocada
-- **Solución:** verifica en **Settings → Pages** que apunta a la rama correcta (ej: `main`)
-
----
-
-### La página está en blanco
-
-**Causa 1:** error en JavaScript
-- **Solución:** abre F12 (DevTools) → **Console** → busca errores rojos
-
-**Causa 2:** `motor.js` no carga
-- **Solución:** verifica que el archivo exista en GitHub y que en `index.html` la ruta sea:
-  ```html
-  <script src="motor.js"></script>
-  ```
-  (relativa, no absoluta)
-
-**Causa 3:** SheetJS CDN bloqueado
-- **Solución:** en `index.html`, cambia la línea:
-  ```html
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  ```
-  por:
-  ```html
-  <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  ```
-
----
-
-### Botón "Descargar Plantilla" no funciona
-
-**Causa:** SheetJS no está disponible
-- **Solución:** 
-  - Abre F12 → **Console** → busca errores
-  - Comprueba que tienes conexión a internet (SheetJS es un CDN)
-  - Intenta otro navegador
-
----
-
-### Importar Excel no funciona
-
-**Causa 1:** formato equivocado
-- **Solución:** asegúrate de que es `.xlsx` o `.xlsb`, no `.xls` antiguo
-
-**Causa 2:** hojas con nombres equivocados
-- **Solución:** descarga la plantilla oficial y cópiala estructura exactamente:
-  - `SKUs`
-  - `Inventario`
-  - `Proveedores`
-  - `Matriz`
-
-**Causa 3:** columnas equivocadas
-- **Solución:** usa la plantilla descargable como referencia
-
----
-
-### Los datos no se guardan
-
-**Causa 1:** localStorage está deshabilitado
-- **Solución:** 
-  - Si usas navegador privado/incógnito → cambia a modo normal
-  - Si tienes localStorage deshabilitado en configuración → habilítalo
-
-**Causa 2:** navegador en modo privado
-- **Solución:** usa modo normal
-
-Verifica:
-```javascript
-// En F12 → Console, escribe:
-localStorage.setItem('test', 'prueba');
-localStorage.getItem('test');
-```
-
-Si devuelve 'prueba', localStorage está funcionando.
-
----
-
-### Cambié algo en motor.js pero no aparece
-
-**Solución:** recarga con Ctrl+Shift+R (vaciado duro de caché)
-
-En algunos navegadores:
-- Chrome: Ctrl+Shift+R
-- Firefox: Ctrl+Shift+R
-- Safari: Cmd+Shift+R
-
----
-
-## Privacidad y Seguridad
-
-### ¿Mi repositorio necesita ser público?
-
-**Sí.** GitHub Pages gratuito requiere repositorio público.
-
-Con plan **GitHub Pro** ($4/mes) puedes hacer Pages privadas.
-
----
-
-### ¿Alguien puede ver mis datos?
-
-**No.** Los datos se guardan SOLO en tu navegador (localStorage), no se envían a GitHub ni a servidores externos.
-
-GitHub solo almacena el código HTML/CSS/JS, no los datos.
-
----
-
-### ¿Puedo compartir la URL con compañeros?
-
-**Sí, pero con precaución:**
-- La app no tiene autenticación
-- Cualquiera que tenga la URL puede abrir la app
-- Pero los datos se guardan localmente en cada navegador
-- No es una solución colaborativa en tiempo real
-
-**Para verdadera colaboración:** considera agregar autenticación y un backend (más complejo, no cubierto aquí).
-
----
-
-## Performance y Limites
-
-### ¿Cuántos SKUs × destinos puedo tener antes de que sea lento?
-
-- **100 combinaciones:** instant
-- **500 combinaciones:** muy rápido
-- **1000+ combinaciones:** aceptable pero noticeable al filtrar
-- **5000+:** considera dividir en múltiples instancias
-
----
-
-### ¿localStorage tiene límite?
-
-**Típicamente:** 5-10 MB por sitio
-
-Con Motor DDI caben fácilmente 100-200 SKUs con todos sus parámetros.
+### ¿Cuánto espacio ocupa en localStorage?
+Con 200 SKUs × 2 destinos, pedidos y matriz completa: aproximadamente 200–400 KB. El límite típico es 5–10 MB.
 
 Para verificar:
-```javascript
+```js
 // En F12 → Console:
 new Blob(Object.values(localStorage)).size
 ```
 
----
-
-## Actualizar la Aplicación
-
-### ¿Cómo actualizo a una versión nueva?
-
-1. Descarga los nuevos archivos
-2. Sube a tu repositorio:
-   ```bash
-   cd tu-repo
-   git add .
-   git commit -m "Update: v2.0"
-   git push
-   ```
-3. GitHub actualiza en 30-60 segundos
-4. Los datos locales se preservan (localStorage intacto)
+### ¿Cómo reseteo todos los datos?
+```js
+// En F12 → Console:
+localStorage.removeItem('replenishment_db_v2');
+location.reload();
+```
 
 ---
 
-### ¿Mis datos se pierden al actualizar?
+## GitHub Pages
 
-**No.** Los datos están en localStorage del navegador, no en los archivos de GitHub.
+### ¿La app requiere internet para funcionar?
+Parcialmente. Necesita internet para:
+- Cargar SheetJS desde CDN (importar/exportar Excel)
+- La primera carga de la página
 
-Actualizar el código no afecta los datos guardados.
+Una vez cargada, funciona sin conexión (los datos son locales).
+
+### ¿Puedo usar un dominio personalizado?
+Sí. En **Settings → Pages → Custom domain** de tu repositorio. Requiere configurar los DNS de tu dominio.
+
+### ¿Funciona en móvil?
+Sí. El diseño es responsive. La experiencia es mejor en pantalla ancha (tablet o desktop) por el heatmap, pero todas las vistas se adaptan a móvil.
+
+### ¿Puedo tener múltiples instancias para diferentes empresas?
+Sí. Crea un repositorio diferente para cada instancia:
+- `empresa-a.github.io/motor-ddi-col/`
+- `empresa-b.github.io/motor-ddi-mex/`
+
+Los `localStorage` son independientes por URL.
 
 ---
 
-## Soporte
+## Errores conocidos
 
-Si algo no funciona:
+### `Uncaught SyntaxError: Identifier 'DB' has already been declared`
+El `motor.js` antiguo declaraba variables globales que colisionaban con `index.html`. La v2 soluciona esto con IIFE. Asegúrate de usar los archivos más recientes.
 
-1. **Lee esta FAQ** (arriba)
-2. **Revisa la consola** (F12 → Console) para errores
-3. **Verifica la estructura** de carpetas y archivos
-4. **Borra caché** (Ctrl+Shift+R)
-5. **Prueba otro navegador**
+### `navigateTo is not defined`
+El archivo `index.html` estaba truncado (sin `</script>` de cierre). Descarga el archivo más reciente.
 
----
-
-**¿Algo más?** Revisa el `README.md` o `GITHUB_RAPIDO.md` en tu repositorio.
+### El heatmap no muestra las semanas correctas
+Verifica que la fecha de tu sistema está correcta. El heatmap usa `new Date()` para determinar "hoy".

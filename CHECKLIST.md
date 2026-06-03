@@ -1,169 +1,152 @@
-# ✓ Checklist de Despliegue
+# ✓ Checklist de Despliegue — Motor DDI v2
 
-Antes de publicar en GitHub, verifica que todo esté listo.
+Marca cada paso antes de publicar.
 
 ---
 
 ## Archivos locales
 
-- ☐ `index.html` (1319 líneas) — aplicación completa
-- ☐ `motor.js` (759 líneas) — motor de cálculo
-- ☐ `styles.css` (898 líneas) — estilos
-- ☐ `README.md` — documentación
-- ☐ `.gitignore` — archivo de configuración
-- ☐ `templates/Plantilla_Motor_DDI.xlsx` — plantilla Excel
-
-**Total esperado:** 6 items
-
----
-
-## Validar archivos
-
-- ☐ Abre `index.html` en navegador local → debe mostrar Dashboard
-- ☐ Busca en DevTools (F12 → Console) → no hay errores rojos
-- ☐ Haz clic en **Plantillas** → se descarga `Plantilla_Motor_DDI.xlsx`
-- ☐ Importa la plantilla descargada → aparecen datos de demo
+- ☐ `index.html` — aplicación completa (~593 líneas)
+- ☐ `motor.js` — motor de cálculo (~740 líneas)
+- ☐ `styles.css` — estilos (~898 líneas)
+- ☐ `templates/Plantilla_Motor_DDI_v2.xlsx`
+- ☐ `README.md`
+- ☐ `CHANGELOG.md`
+- ☐ `FAQ.md`
+- ☐ `GITHUB_RAPIDO.md`
+- ☐ `CHECKLIST.md`
+- ☐ `.gitignore`
 
 ---
 
-## Verificar rutas relativas
+## Validación local (antes de subir)
 
-En `index.html`, busca:
-- ☐ `<script src="motor.js"></script>` ✓ relativo
-- ☐ `<link rel="stylesheet" href="styles.css">` ✓ relativo
-- ☐ NO hay rutas como `/motor.js` ✗ evitar
+Abre `index.html` directamente en Chrome/Firefox:
 
-En `motor.js`, busca:
-- ☐ No hay rutas hardcodeadas
-- ☐ DB se guarda en localStorage ✓
+- ☐ Dashboard carga con 6 SKUs de demo
+- ☐ **Heatmap Semanal** muestra 10 columnas de semanas con colores DDI
+- ☐ Pasar cursor sobre celda del heatmap muestra tooltip con detalle
+- ☐ Punto blanco visible en celdas con pedidos programados
+- ☐ Vista **Pedidos en Camino** muestra los pedidos con fechas y badges de días
+- ☐ Crear un pedido nuevo → aparece en heatmap al recalcular
+- ☐ Botón **↓ Exportar** descarga Excel con 3 hojas (Resumen, Proyección, Distribución)
+- ☐ **Plantillas** → Descargar Plantilla Completa v2 → se descarga correctamente
+- ☐ F12 → Console → **sin errores rojos**
+- ☐ F12 → Console → sin `navigateTo is not defined`
+- ☐ F12 → Console → sin `Identifier 'DB' already declared`
 
 ---
 
-## Estructura de carpetas (local)
+## Verificar archivos críticos
 
-```
-tu-carpeta-local/
-├── index.html           ☐
-├── motor.js             ☐
-├── styles.css           ☐
-├── README.md            ☐
-├── .gitignore           ☐
-├── FAQ.md               ☐ (opcional)
-├── GITHUB_RAPIDO.md     ☐ (opcional)
-└── templates/           ☐
-    └── Plantilla_Motor_DDI.xlsx
+```bash
+# Verificar que motor.js tiene IIFE
+head -1 motor.js
+# debe mostrar: (function () {
+tail -1 motor.js
+# debe mostrar: })(); // end IIFE
+
+# Verificar que index.html está completo
+grep -c "</script>" index.html
+# debe ser 3
+
+grep -c "</body>" index.html
+# debe ser 1
 ```
 
 ---
 
 ## GitHub
 
-- ☐ Tienes cuenta en [github.com](https://github.com)
-- ☐ Puedes crear repositorios
-- ☐ Tienes acceso a Settings → Pages
+### Repositorio
+- ☐ Cuenta en [github.com](https://github.com) activa
+- ☐ Repositorio `motor-ddi` creado como **Public**
+- ☐ Sin README predeterminado de GitHub (usamos el nuestro)
 
----
+### Subir archivos
+- ☐ Todos los archivos en la **raíz del repositorio** (no en subcarpeta)
+- ☐ Carpeta `templates/` con `Plantilla_Motor_DDI_v2.xlsx` dentro
+- ☐ Commit realizado a la rama `main`
 
-## Crear repositorio
-
-- ☐ Nombre: `motor-ddi` (o tu nombre preferido)
-- ☐ Visibility: **Public** (obligatorio para Pages gratis)
-- ☐ Sin marcar "Add README" (usarás el tuyo)
-- ☐ Repositorio creado
-
----
-
-## Subir archivos
-
-### Opción A: Terminal (recomendado)
-
-```bash
-git init                                    ☐
-git add .                                   ☐
-git commit -m "Initial commit"              ☐
-git branch -M main                          ☐
-git remote add origin https://github.com/USERNAME/motor-ddi.git  ☐
-git push -u origin main                     ☐
+```
+motor-ddi/ (raíz del repo)
+├── index.html        ✓
+├── motor.js          ✓
+├── styles.css        ✓
+├── README.md         ✓
+├── CHANGELOG.md      ✓
+├── FAQ.md            ✓
+├── GITHUB_RAPIDO.md  ✓
+├── CHECKLIST.md      ✓
+├── .gitignore        ✓
+└── templates/
+    └── Plantilla_Motor_DDI_v2.xlsx  ✓
 ```
 
-### Opción B: Interfaz web
-
-- ☐ **Add file** → **Upload files**
-- ☐ Arrastra los 6 archivos
-- ☐ **Commit changes** → rama `main`
-
----
-
-## Activar Pages
-
-1. ☐ En tu repositorio GitHub
-2. ☐ **Settings** (pestaña de arriba)
-3. ☐ **Pages** (menú izquierdo)
-4. ☐ **Source** → **Deploy from a branch**
-5. ☐ **Branch** → **main**
-6. ☐ **Folder** → **(root)**
-7. ☐ Haz clic en **Save**
+### GitHub Pages
+- ☐ Settings → Pages → Source: **Deploy from a branch**
+- ☐ Branch: **main** / **root**
+- ☐ Guardado con **Save**
+- ☐ Mensaje verde: *"Your site is live at..."*
 
 ---
 
-## Validar en GitHub
+## Prueba en producción
 
-- ☐ Todos los archivos están en el repositorio
-- ☐ La rama es `main` (o `master`)
-- ☐ Settings → Pages muestra el mensaje verde: "Your site is live at..."
-- ☐ La URL es: `https://USERNAME.github.io/motor-ddi/`
+URL: `https://TU_USUARIO.github.io/motor-ddi/`
 
----
-
-## Prueba final
-
-- ☐ Abre la URL en el navegador
-- ☐ Espera 30-60 segundos si es la primera vez
-- ☐ Recarga si ves página en blanco (Ctrl+Shift+R)
-- ☐ Dashboard aparece con datos de demo
-- ☐ Botones funcionan (Reabastecimiento, Admin, Importar, etc.)
-- ☐ Descargas plantilla: **Plantillas** → **Plantilla Completa** → ✓ descarga
-- ☐ Importas Excel: **Importar Excel** → carga archivo → ✓ importa
+- ☐ La URL abre la app (espera 30–60s tras el primer deploy)
+- ☐ Dashboard muestra datos de demo
+- ☐ **Heatmap Semanal** funciona con colores y tooltips
+- ☐ **Pedidos en Camino** permite crear/editar/eliminar
+- ☐ Los pedidos creados aparecen en el heatmap (punto blanco)
+- ☐ **Importar Excel** → cargar la plantilla descargada → importa correctamente
+- ☐ **↓ Exportar** → descarga Excel con proyección semanal
+- ☐ La app funciona en móvil (responsive)
+- ☐ Los datos persisten al recargar la página (F5)
 
 ---
 
-## Post-deployment
+## Post-despliegue
 
-- ☐ Guarda la URL de tu app en un lugar seguro
-- ☐ Comparte con tu equipo: `https://USERNAME.github.io/motor-ddi/`
-- ☐ Lee `FAQ.md` para responder preguntas comunes
-- ☐ Configura un .gitignore si planeas hacer commits frecuentes
-
----
-
-## Problemas comunes
-
-Si algo falla:
-
-| Síntoma | Solución |
-|---------|----------|
-| **404 Not Found** | Espera 3 min, recarga Ctrl+Shift+R, verifica Settings → Pages |
-| **Página en blanco** | F12 → Console, busca errores, verifica archivos en GitHub |
-| **Plantilla no descarga** | Recarga página, verifica que `templates/` existe en GitHub |
-| **Importar no funciona** | Usa plantilla descargada como referencia de columnas |
+- ☐ Guarda la URL en favoritos y compártela con el equipo
+- ☐ Descarga la plantilla desde la app en producción y rellena con datos reales
+- ☐ Importa los datos reales: SKUs, Inventario, Proveedores, Matriz, Pedidos
+- ☐ Verifica que el heatmap refleja la situación real de inventario
+- ☐ Revisa las alertas críticas en el Dashboard
+- ☐ Establece un proceso de actualización semanal del inventario
 
 ---
 
-## Configuración futura (opcional)
+## Errores y soluciones rápidas
 
-- ☐ Dominio personalizado (Settings → Pages → Custom domain)
-- ☐ SSL/HTTPS (automático en GitHub Pages)
-- ☐ Comentarios (no necesita backend para esta app)
-- ☐ Analytics (Google Analytics, opcional)
+| Error en consola | Causa | Solución |
+|------------------|-------|----------|
+| `navigateTo is not defined` | index.html truncado | Sube la versión correcta |
+| `Identifier 'DB' already declared` | motor.js sin IIFE | Sube motor.js v2 con IIFE |
+| `XLSX is not defined` | SheetJS CDN no cargó | Verifica conexión a internet |
+| `Cannot read properties of undefined` | Motor no cargó antes que UI | Verifica orden de scripts en index.html |
+
+| Síntoma visual | Causa | Solución |
+|----------------|-------|----------|
+| 404 al abrir la URL | Pages no procesado aún | Espera 2 min + Ctrl+Shift+R |
+| Página en blanco | Script roto | F12 → Console → busca error |
+| Heatmap sin colores | DDI todos nulos | Verifica que `Demanda Diaria > 0` |
+| Sin puntos blancos | Sin pedidos registrados | Crea pedidos en **Pedidos en Camino** |
+| Datos perdidos | Modo incógnito | Usa navegador normal |
 
 ---
 
-## ✅ Listo para ir en vivo
+## Actualizaciones futuras
 
-Cuando todas las casillas estén marcadas, tu app está lista en GitHub Pages.
+Cuando haya una nueva versión de los archivos:
 
-**URL de producción:** `https://USERNAME.github.io/motor-ddi/`
+```bash
+cd motor-ddi
+# Reemplaza los archivos actualizados
+git add index.html motor.js  # o los archivos que cambiaron
+git commit -m "Actualización v2.1"
+git push
+```
 
----
-
-**¡Felicidades! Tu Sistema de Reabastecimiento DDI está en vivo.** 🚀
+Los datos en localStorage **no se pierden** al actualizar los archivos.

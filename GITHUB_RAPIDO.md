@@ -1,150 +1,118 @@
-# ⚡ Inicio Rápido — GitHub Pages (5 minutos)
+# ⚡ Inicio Rápido — Motor DDI en GitHub Pages
 
-## Paso 1: Crear el repositorio en GitHub
-
-**En [github.com](https://github.com):**
-
-1. Haz clic en **+** (arriba a la derecha)
-2. **New repository**
-3. Nombre: `motor-ddi`
-4. ☑ **Public**
-5. **Create repository**
-
-**Copiarás esta URL:** `https://github.com/TU_USUARIO/motor-ddi`
+Tiempo estimado: **5 minutos**
 
 ---
 
-## Paso 2: Subir los archivos
+## Archivos a subir (obligatorios)
 
-Tienes **2 opciones:**
-
-### Opción A: Sin terminal (más fácil)
-
-En la página del repositorio vacío, haz clic en **uploading an existing file** y:
-
-1. Sube estos archivos al raíz:
-   - `index.html`
-   - `motor.js`
-   - `styles.css`
-   - `README.md`
-   - `.gitignore`
-
-2. Luego crea la carpeta `templates/`:
-   - Haz clic en **Add file** → **Create new file**
-   - Escribe: `templates/Plantilla_Motor_DDI.xlsx`
-   - En DevTools, copia el contenido binario...
-   
-   **O mejor:** sigue la Opción B
-
-### Opción B: Con terminal (más rápido)
-
-Abre tu terminal y ejecuta:
-
-```bash
-# 1. Ir a la carpeta donde están tus archivos
-cd /path/a/motor-ddi
-
-# 2. Inicializar Git
-git init
-
-# 3. Configurar usuario (primera vez)
-git config user.name "Tu Nombre"
-git config user.email "tu@email.com"
-
-# 4. Agregar todos los archivos
-git add .
-
-# 5. Hacer commit
-git commit -m "Initial commit: Motor DDI app"
-
-# 6. Cambiar rama a main
-git branch -M main
-
-# 7. Conectar con GitHub (reemplaza TU_USUARIO)
-git remote add origin https://github.com/TU_USUARIO/motor-ddi.git
-
-# 8. Subir a GitHub
-git push -u origin main
+```
+motor-ddi/
+├── index.html          ← La app entera
+├── motor.js            ← Motor de cálculo
+├── styles.css          ← Estilos
+├── templates/
+│   └── Plantilla_Motor_DDI_v2.xlsx
+└── README.md           ← (recomendado)
 ```
 
 ---
 
-## Paso 3: Activar GitHub Pages
+## Paso 1 — Crear el repositorio
 
-**En tu repositorio de GitHub:**
-
-1. **Settings** (pestaña de arriba)
-2. **Pages** (menú izquierdo, bajo "Code and automation")
-3. **Source** → **Deploy from a branch**
-4. **Branch** → selecciona **main** → **root**
-5. **Save**
-
-Espera 30-60 segundos. Verás:
-> ✅ Your site is live at `https://TU_USUARIO.github.io/motor-ddi/`
+1. Ve a **[github.com/new](https://github.com/new)**
+2. **Repository name:** `motor-ddi`
+3. **Visibility:** ☑ `Public` (obligatorio para Pages gratis)
+4. **NO** marques "Add a README"
+5. Clic en **Create repository**
 
 ---
 
-## ✅ ¡Listo!
+## Paso 2 — Subir los archivos
 
-Abre en tu navegador:
+### Opción A: Con terminal (recomendado)
+
+```bash
+# 1. Clona el repo vacío
+git clone https://github.com/TU_USUARIO/motor-ddi.git
+cd motor-ddi
+
+# 2. Copia los archivos en esta carpeta
+#    (index.html, motor.js, styles.css, README.md)
+#    y la carpeta templates/
+
+# 3. Sube todo
+git add .
+git commit -m "Motor DDI v2.0 — Heatmap semanal"
+git push -u origin main
+```
+
+### Opción B: Por la interfaz web
+
+1. En la página del repo vacío → **uploading an existing file**
+2. Arrastra los 4 archivos sueltos + la carpeta `templates/`
+3. Clic en **Commit changes**
+
+> **Para la carpeta `templates/`:** haz clic en "Add file" → "Create new file" → escribe `templates/` en el nombre y sube el `.xlsx`
+
+---
+
+## Paso 3 — Activar GitHub Pages
+
+1. En tu repositorio → **Settings**
+2. Menú izquierdo → **Pages**
+3. **Source** → `Deploy from a branch`
+4. **Branch** → `main` / `root`
+5. Clic en **Save**
+
+Espera **30–60 segundos**. Aparecerá:
+> ✅ *Your site is live at* `https://TU_USUARIO.github.io/motor-ddi/`
+
+---
+
+## Paso 4 — Verificar
+
+Abre en el navegador:
 ```
 https://TU_USUARIO.github.io/motor-ddi/
 ```
 
-Deberías ver:
-- Dashboard con 6 SKUs de demo
-- Todas las vistas funcionando
-- Botón para descargar plantillas
-- Posibilidad de importar Excel
+Deberías ver el **Dashboard** con datos de demo. Navega a **Heatmap Semanal** para ver la proyección de 10 semanas con colores DDI.
 
 ---
 
-## Archivos necesarios en el repositorio
+## Actualizar la app
 
-```
-motor-ddi/
-├── index.html                    ← APP
-├── motor.js                      ← Motor
-├── styles.css                    ← Estilos
-├── README.md                     ← Doc
-├── .gitignore                    ← Opcional
-└── templates/
-    └── Plantilla_Motor_DDI.xlsx  ← Plantilla
-```
-
----
-
-## Solucionar problemas
-
-| Problema | Solución |
-|----------|----------|
-| **"Page not found"** | Espera 2-3 min, recarga con Ctrl+Shift+R |
-| **Página en blanco** | Asegúrate de que `index.html` está en la raíz |
-| **Plantilla no descarga** | Verifica que `templates/Plantilla_Motor_DDI.xlsx` existe |
-| **Datos no persisten** | No uses modo privado/incógnito en el navegador |
-
----
-
-## Actualizar después
-
-Cuando hagas cambios:
+Cada vez que descargues una nueva versión de `index.html` o `motor.js`:
 
 ```bash
-cd /path/a/motor-ddi
+cd motor-ddi
+# copia los archivos nuevos aquí
 git add .
-git commit -m "Tu mensaje"
+git commit -m "Actualización vX.X"
 git push
 ```
 
-GitHub actualiza automáticamente en 30-60 segundos.
+GitHub actualiza en 30–60 segundos. **Los datos en localStorage no se pierden.**
 
 ---
 
-## 🎯 Eso es todo
+## Solución rápida de errores
 
-- ✅ App estática (100% navegador)
-- ✅ Sin servidor ni backend
-- ✅ Gratis en GitHub Pages
-- ✅ Funciona offline (los datos quedan en localStorage)
+| Síntoma | Solución |
+|---------|----------|
+| 404 Not Found | Espera 2 min + Ctrl+Shift+R |
+| Página en blanco | F12 → Console → busca errores rojos |
+| Heatmap no aparece | Verifica que `motor.js` está en la raíz del repo |
+| Plantilla no descarga | Verifica conexión a internet (SheetJS es CDN) |
+| Datos se pierden | No uses modo incógnito |
 
-**¡Disfruta!**
+Para más detalles consulta `FAQ.md`.
+
+---
+
+## URL final
+
+```
+https://TU_USUARIO.github.io/motor-ddi/
+```
