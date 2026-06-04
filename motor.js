@@ -1,15 +1,27 @@
 (function () {
 'use strict';
 /**
- * motor.js — Asistente de Compra v4.0
- * - MOQ por SKU x Proveedor
- * - Inventario = disponible inmediato
- * - IRD = demanda diaria real
- * - Modo dual: IRD real vs IRD teórico mensual
- * - Proyección semanal con demanda ponderada por días de cada mes
+ * Asistente de Compra — motor.js v5.0
+ *
+ * Fórmulas (convenios usuario):
+ *   DS   = día de semana actual (Lun=1...Dom=7)
+ *   DDSMj = días de la semana en mes j
+ *   IRDj  = IRD teórico del mes j   (modo teórico)
+ *   IRDR  = IRD real del SKU+Destino (siempre en DDI)
+ *
+ *   DDI               = Inventario / IRDR
+ *   WeeklyDemand      = Σ(IRDj × DDSMj)       (suma ponderada por mes)
+ *   InventarioObjetivo= (WeeklyDemand/7) × DDI_objetivo
+ *   Ventas            = WeeklyDemand × (7-DS)/7 (demanda restante de la semana actual)
+ *   InvProyectado     = Inventario - Ventas + pedidos antes del corte (fin de semana)
+ *   CompraBruta       = InventarioObjetivo - InvProyectado
+ *   CompraFinal       = MAX(0, TECHO(CompraBruta/MOQ)×MOQ)
+ *   DDI_proyectado    = (InvProyectado + CompraFinal) / IRDR
  */
 
-// ═══ CONSTANTES ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// CONSTANTES
+// ═══════════════════════════════════════════════════════════
 const DDI_COLORS = [
   { max: 0,        color: '#dc2626', label: 'Crítico',     bg: '#fef2f2' },
   { max: 7,        color: '#ea580c', label: 'Muy Bajo',    bg: '#fff7ed' },
@@ -20,9 +32,11 @@ const DDI_COLORS = [
   { max: 60,       color: '#65a30d', label: 'Exceso Leve', bg: '#f7fee7' },
   { max: Infinity, color: '#292524', label: 'Exceso',      bg: '#f5f5f4' }
 ];
-const DB_KEY = 'replenishment_db_v4';
+const DB_KEY = 'replenishment_db_v5';
 
-// ═══ BASE DE DATOS ═════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// BASE DE DATOS
+// ═══════════════════════════════════════════════════════════
 const DB = {
   _data: null,
   _defaultData() {
@@ -32,15 +46,17 @@ const DB = {
         { id:'galapa', name:'Galapa', active:true },
         { id:'bogota', name:'Bogotá', active:true }
       ],
-      matrix: [],   // { skuId, supplierId, destId, leadTime, weight, moq, active }
+      matrix: [],
       params: [],
-      inventory: [], // { skuId, destId, inventory, ird }
-      orders: [],    // { id, skuId, destId, supplierId, qty, arrivalDate, notes }
-      // NUEVO v4: IRDs teóricos mensuales por SKU+Destino
-      monthlyIrds: [], // { skuId, destId, year, month, ird }
-      // NUEVO v4: configuración global
-      settings: { irdMode: 'real' }, // 'real' | 'teorico'
-      meta: { lastImport: null, version: '4.0' }
+      // inventory: { skuId, destId, inventory, ird }
+      //   ird = IRD real (IRDR). Obligatorio.
+      inventory: [],
+      orders: [],
+      // IRDs teóricos mensuales por SKU+Destino+Mes
+      // { skuId, destId, year, month, ird }  — editables desde Admin > Inventario
+      monthlyIrds: [],
+      settings: { irdMode: 'real' },   // 'real' | 'teorico'
+      meta: { lastImport: null, version: '5.0' }
     };
   },
   load() {
@@ -51,26 +67,34 @@ const DB = {
       if (!this._data.monthlyIrds) this._data.monthlyIrds = [];
       if (!this._data.settings)    this._data.settings    = { irdMode: 'real' };
     } catch(e) {
-      console.error('Error cargando DB:', e);
+      console.error('Error DB:', e);
       this._data = this._defaultData();
     }
     return this._data;
   },
-  save() { try { localStorage.setItem(DB_KEY, JSON.stringify(this._data)); } catch(e) { console.error(e); } },
+  save() { try { localStorage.setItem(DB_KEY, JSON.stringify(this._data)); } catch(e){} },
   get()  { if (!this._data) this.load(); return this._data; },
   reset(){ this._data = this._defaultData(); this.save(); }
 };
 
-// ═══ UTILIDADES DE FECHA ══════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// UTILIDADES DE FECHA
+// ═══════════════════════════════════════════════════════════
 const DateUtils = {
   today() { const d=new Date(); d.setHours(0,0,0,0); return d; },
-  parse(str) { if(!str) return null; const [y,m,d]=String(str).split('-').map(Number); return new Date(y,m-1,d); },
-  toISO(d)   { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; },
+  parse(str) { if(!str) return null; const[y,m,d]=String(str).split('-').map(Number); return new Date(y,m-1,d); },
+  toISO(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; },
   toShort(d) { const M=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']; return `${d.getDate()}-${M[d.getMonth()]}`; },
   monthName(m){ return ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][m-1]; },
+  monthShort(m){ return ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][m-1]; },
   diffDays(a,b) { return Math.round((b-a)/86400000); },
-  weekStart(date) { const d=new Date(date); const day=d.getDay(); d.setDate(d.getDate()+((day===0)?-6:1-day)); d.setHours(0,0,0,0); return d; },
-  addDays(date,days) { const d=new Date(date); d.setDate(d.getDate()+days); return d; },
+  weekStart(date) {
+    const d=new Date(date); const day=d.getDay();
+    d.setDate(d.getDate()+(day===0?-6:1-day)); d.setHours(0,0,0,0); return d;
+  },
+  addDays(date,n) { const d=new Date(date); d.setDate(d.getDate()+n); return d; },
+  /** DS = día de semana (Lun=1...Dom=7) */
+  dayOfWeek(date) { const d=date.getDay(); return d===0?7:d; },
   getWeeks(n=10) {
     const start=this.weekStart(this.today());
     return Array.from({length:n},(_,i)=>{
@@ -79,213 +103,246 @@ const DateUtils = {
       return { weekStart:ws, weekEnd:we, label:this.toShort(we), labelFull:`${this.toShort(ws)}-${this.toShort(we)}` };
     });
   },
-  /** Months covered by a set of weeks, as { year, month, name } */
+  /**
+   * Desglose de días de una semana por mes.
+   * Retorna [{ year, month, days }]
+   */
+  getDDSM(weekStart, weekEnd) {
+    const map = {};
+    let d = new Date(weekStart);
+    while (d <= weekEnd) {
+      const key = `${d.getFullYear()}-${d.getMonth()+1}`;
+      map[key] = (map[key]||0) + 1;
+      d = this.addDays(d, 1);
+    }
+    return Object.entries(map).map(([k,days])=>{
+      const [year,month] = k.split('-').map(Number);
+      return { year, month, days };
+    });
+  },
   getMonthsCovered(weeks) {
-    const seen = new Set();
-    const months = [];
-    for (const w of weeks) {
-      let d = new Date(w.weekStart);
-      while (d <= w.weekEnd) {
-        const key = `${d.getFullYear()}-${d.getMonth()+1}`;
-        if (!seen.has(key)) {
+    const seen=new Set(), months=[];
+    for(const w of weeks){
+      let d=new Date(w.weekStart);
+      while(d<=w.weekEnd){
+        const key=`${d.getFullYear()}-${d.getMonth()+1}`;
+        if(!seen.has(key)){
           seen.add(key);
-          months.push({ year: d.getFullYear(), month: d.getMonth()+1, name: this.monthName(d.getMonth()+1) });
+          months.push({year:d.getFullYear(),month:d.getMonth()+1,name:this.monthName(d.getMonth()+1)});
         }
-        d = this.addDays(d, 1);
+        d=this.addDays(d,1);
       }
     }
     return months;
   }
 };
 
-// ═══ MOTOR DE CÁLCULO ═════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// MOTOR DE CÁLCULO
+// ═══════════════════════════════════════════════════════════
 const Engine = {
 
   getDDIColor(ddi) {
-    if (ddi===null||ddi===undefined||isNaN(ddi)) return { color:'#94a3b8', label:'Sin datos', bg:'#f8fafc' };
-    for (const b of DDI_COLORS) if (ddi<=b.max) return b;
+    if (ddi===null||ddi===undefined||isNaN(ddi)) return {color:'#94a3b8',label:'Sin datos',bg:'#f8fafc'};
+    for(const b of DDI_COLORS) if(ddi<=b.max) return b;
     return DDI_COLORS[DDI_COLORS.length-1];
   },
 
-  /**
-   * Obtiene el IRD para una fecha específica según el modo activo.
-   * Modo 'real': usa inv.ird siempre.
-   * Modo 'teorico': usa monthlyIrds si existe, fallback a inv.ird.
-   */
-  getIrdForDate(skuId, destId, date) {
-    const db  = DB.get();
-    const inv = db.inventory.find(i=>i.skuId===skuId&&i.destId===destId) || {};
-    const realIrd = inv.ird || 0;
-    if ((db.settings||{}).irdMode !== 'teorico') return realIrd;
-    const year  = date.getFullYear();
-    const month = date.getMonth()+1;
-    const entry = db.monthlyIrds.find(m=>m.skuId===skuId&&m.destId===destId&&m.year===year&&m.month===month);
-    return entry?.ird ?? realIrd;
+  /** IRD para un mes específico (teórico si existe, real como fallback) */
+  getIrdForMonth(skuId, destId, year, month) {
+    const db   = DB.get();
+    const inv  = db.inventory.find(i=>i.skuId===skuId&&i.destId===destId)||{};
+    const irdr = inv.ird || 0;
+    if ((db.settings||{}).irdMode !== 'teorico') return irdr;
+    const entry = db.monthlyIrds.find(m=>
+      m.skuId===skuId && m.destId===destId && m.year===year && m.month===month
+    );
+    return entry?.ird ?? irdr;
   },
 
   /**
-   * Calcula la demanda acumulada desde hoy hasta una fecha de corte,
-   * iterando día a día para soportar el modo teórico.
+   * Demanda semanal ponderada por mes.
+   * WeeklyDemand = Σ(IRDj × DDSMj)
+   * Retorna { total, ddsm: [{year,month,days,ird,demand}] }
    */
-  calcCumulativeDemand(skuId, destId, fromDate, toDate) {
+  calcWeeklyWeightedDemand(skuId, destId, weekStart, weekEnd) {
+    const ddsm = DateUtils.getDDSM(weekStart, weekEnd);
     let total = 0;
-    let d = new Date(fromDate);
-    while (d <= toDate) {
-      total += this.getIrdForDate(skuId, destId, d);
-      d = DateUtils.addDays(d, 1);
-    }
-    return total;
+    const detail = ddsm.map(({year,month,days})=>{
+      const ird = this.getIrdForMonth(skuId, destId, year, month);
+      const demand = ird * days;
+      total += demand;
+      return {year,month,days,ird,demand,name:DateUtils.monthName(month)};
+    });
+    return { total, ddsm: detail };
   },
-
-  /**
-   * Demanda semanal para una semana específica (suma de IRD diario de cada día).
-   * Retorna { total, byDay: [{date, ird}] }
-   */
-  calcWeeklyDemand(skuId, destId, weekStart, weekEnd) {
-    const byDay = [];
-    let d = new Date(weekStart);
-    while (d <= weekEnd) {
-      byDay.push({ date: new Date(d), ird: this.getIrdForDate(skuId, destId, d) });
-      d = DateUtils.addDays(d, 1);
-    }
-    return { total: byDay.reduce((s,x)=>s+x.ird,0), byDay };
-  },
-
-  getDailyDemand(ird) { return ird || 0; },
-  calcDDI(inv, dailyDemand) { return dailyDemand ? inv/dailyDemand : null; },
-  calcTargetInventory(dailyDemand, targetDDI) { return dailyDemand * targetDDI; },
 
   getTotalIncoming(skuId, destId) {
     const today = DateUtils.today();
     return DB.get().orders
       .filter(o=>o.skuId===skuId&&o.destId===destId)
       .filter(o=>{ const a=DateUtils.parse(o.arrivalDate); return a&&a>=today; })
-      .reduce((s,o)=>s+(o.qty||0),0);
+      .reduce((s,o)=>s+(o.qty||0), 0);
+  },
+
+  getOrdersInRange(skuId, destId, from, to) {
+    return DB.get().orders
+      .filter(o=>o.skuId===skuId&&o.destId===destId)
+      .filter(o=>{ const a=DateUtils.parse(o.arrivalDate); return a&&a>=from&&a<=to; });
   },
 
   normalizeSupplierWeights(skuId, destId) {
-    const valid = DB.get().matrix.filter(m=>m.skuId===skuId&&m.destId===destId&&m.active);
-    if (!valid.length) return [];
-    const total = valid.reduce((s,m)=>s+(m.weight||0),0);
-    return valid.map(m=>({...m, normalizedWeight: total?(m.weight||0)/total:1/valid.length}));
+    const valid=DB.get().matrix.filter(m=>m.skuId===skuId&&m.destId===destId&&m.active);
+    if(!valid.length) return [];
+    const total=valid.reduce((s,m)=>s+(m.weight||0),0);
+    return valid.map(m=>({...m, normalizedWeight:total?(m.weight||0)/total:1/valid.length}));
   },
 
   calcSupplierDistribution(skuId, destId, qtyNeeded) {
-    if (qtyNeeded<=0) return [];
-    const suppliers = this.normalizeSupplierWeights(skuId, destId);
-    if (!suppliers.length) return [];
-    const db = DB.get();
+    if(qtyNeeded<=0) return [];
+    const suppliers=this.normalizeSupplierWeights(skuId, destId);
+    if(!suppliers.length) return [];
+    const db=DB.get();
     return suppliers.map(e=>{
-      const sup = db.suppliers.find(s=>s.id===e.supplierId);
-      const moq = e.moq||1;
+      const sup=db.suppliers.find(s=>s.id===e.supplierId);
+      const moq=e.moq||1;
       return {
-        supplierId: e.supplierId, supplierName: sup?.name||e.supplierId,
-        leadTime: e.leadTime||0, weight: e.weight||0,
-        normalizedWeight: e.normalizedWeight, moq,
+        supplierId:e.supplierId, supplierName:sup?.name||e.supplierId,
+        leadTime:e.leadTime||0, weight:e.weight||0,
+        normalizedWeight:e.normalizedWeight, moq,
         quantity: Math.ceil(qtyNeeded*e.normalizedWeight/moq)*moq
       };
     });
   },
 
   /**
-   * Proyección semanal completa.
-   * Usa demanda día a día para soportar IRDs teóricos mensuales.
-   * Cada semana incluye: projInv, projDDI, weeklyDemand, dailyDemandAvg, ordersThisWeek.
+   * Proyección semanal para heatmap (10 semanas).
+   *
+   * Semana 0 (actual, parcial):
+   *   DS = día de hoy (Lun=1...Dom=7)
+   *   demand_0 = WeeklyDemand × (7-DS)/7
+   *   projInv_0 = currentInv - demand_0 + orders_in_week_0
+   *
+   * Semana k>0 (completa):
+   *   projInv_k = projInv_{k-1} - WeeklyDemand_k + orders_in_week_k
+   *
+   * DDI_k = projInv_k / IRDR  (siempre real IRD)
    */
   calcWeeklyProjection(skuId, destId, weeksAhead=10) {
     const db    = DB.get();
     const inv   = db.inventory.find(i=>i.skuId===skuId&&i.destId===destId)||{};
     const sku   = db.skus.find(s=>s.id===skuId);
     const today = DateUtils.today();
+    const DS    = DateUtils.dayOfWeek(today);
 
-    const currentInv = inv.inventory||0;
-    const realIrd    = inv.ird||0;
-    const targetDDI  = (db.params.find(p=>p.skuId===skuId&&p.destId===destId)||{}).targetDDI||sku?.targetDDI||30;
+    const irdr      = inv.ird||0;
+    const currentInv= inv.inventory||0;
+    const targetDDI = (db.params.find(p=>p.skuId===skuId&&p.destId===destId)||{}).targetDDI||sku?.targetDDI||30;
+    const weeks     = DateUtils.getWeeks(weeksAhead);
 
-    const weeks = DateUtils.getWeeks(weeksAhead);
-    const future = db.orders
-      .filter(o=>o.skuId===skuId&&o.destId===destId)
-      .filter(o=>{ const a=DateUtils.parse(o.arrivalDate); return a&&a>=today; })
-      .sort((a,b)=>new Date(a.arrivalDate)-new Date(b.arrivalDate));
+    let prevInv = currentInv;
 
-    return weeks.map(week=>{
-      // Weekly demand: sum IRD for each day of this week
-      const wd = this.calcWeeklyDemand(skuId, destId, week.weekStart, week.weekEnd);
+    return weeks.map((week, wi) => {
+      const wd      = this.calcWeeklyWeightedDemand(skuId, destId, week.weekStart, week.weekEnd);
       const weeklyDemand    = wd.total;
-      const dailyDemandAvg  = weeklyDemand/7;
+      const dailyDemandAvg  = weeklyDemand / 7;
 
-      // Cumulative consumption from today to end of this week
-      const endYesterday = DateUtils.addDays(week.weekEnd, 0);
-      const cumulDemand  = this.calcCumulativeDemand(skuId, destId, today, endYesterday);
+      // Demand consumed in this week (partial for week 0)
+      const demandThisWeek = wi === 0
+        ? weeklyDemand * (7 - DS) / 7
+        : weeklyDemand;
 
-      // Orders accumulated until end of this week
-      const ordersThisWeek = future.filter(o=>{
-        const a=DateUtils.parse(o.arrivalDate);
-        return a>=week.weekStart&&a<=week.weekEnd;
-      });
-      const ordersAccumulated = future
-        .filter(o=>{ const a=DateUtils.parse(o.arrivalDate); return a>=today&&a<=week.weekEnd; })
-        .reduce((s,o)=>s+(o.qty||0),0);
+      // Orders arriving in this specific week
+      const ordersThisWeek  = this.getOrdersInRange(skuId, destId, week.weekStart, week.weekEnd);
+      const ordersQty       = ordersThisWeek.reduce((s,o)=>s+(o.qty||0), 0);
 
-      const projInv  = currentInv - cumulDemand + ordersAccumulated;
-      const projDDI  = dailyDemandAvg>0 ? projInv/dailyDemandAvg : null;
+      const projInv  = prevInv - demandThisWeek + ordersQty;
+      const projDDI  = irdr > 0 ? projInv / irdr : null;   // DDI = inv / IRDR
       const ddiColor = this.getDDIColor(projDDI);
 
-      // Month breakdown for tooltip (how many days each month contributes)
-      const monthBreakdown = {};
-      wd.byDay.forEach(({date,ird})=>{
-        const k = `${DateUtils.monthName(date.getMonth()+1)}`;
-        if(!monthBreakdown[k]) monthBreakdown[k]={days:0,demand:0};
-        monthBreakdown[k].days++;
-        monthBreakdown[k].demand+=ird;
-      });
+      prevInv = projInv; // carry forward for next week
 
       return {
         ...week,
         weeklyDemand: Math.round(weeklyDemand),
+        demandThisWeek: Math.round(demandThisWeek),
         dailyDemandAvg,
-        cumulDemand: Math.round(cumulDemand),
         projInv: Math.round(projInv),
         projDDI, ddiColor,
-        isAtRisk:    projDDI!==null&&projDDI<=7,
-        isCritical:  projDDI!==null&&projDDI<=0,
-        targetDDI, ordersThisWeek, ordersAccumulated,
-        monthBreakdown
+        isAtRisk:   projDDI!==null&&projDDI<=7,
+        isCritical: projDDI!==null&&projDDI<=0,
+        targetDDI, ordersThisWeek, ordersQty,
+        ddsm: wd.ddsm   // desglose por mes para tooltip
       };
     });
   },
 
+  /**
+   * Calcula una fila completa de reabastecimiento para SKU+Destino.
+   *
+   * Ventas = WeeklyDemand_current × (7-DS)/7
+   * InventarioObjetivo = (WeeklyDemand_next/7) × DDI_objetivo
+   * InvProyectado = currentInv - Ventas + orders arriving this week
+   * CompraBruta = InventarioObjetivo - InvProyectado
+   * CompraFinal = MAX(0, TECHO(CompraBruta/MOQ)×MOQ)
+   * DDI_proy = (InvProyectado + CompraFinal) / IRDR
+   */
   calcRow(skuId, destId) {
     const db   = DB.get();
     const sku  = db.skus.find(s=>s.id===skuId);
     const dest = db.destinations.find(d=>d.id===destId);
-    if (!sku||!dest) return null;
+    if(!sku||!dest) return null;
 
     const param = db.params.find(p=>p.skuId===skuId&&p.destId===destId)||{};
     const inv   = db.inventory.find(i=>i.skuId===skuId&&i.destId===destId)||{};
 
-    const ird         = inv.ird||param.ird||0;
-    const dailyDemand = ird; // IRD = demanda diaria real
-    const weeklyDemand= dailyDemand*7;
-    const currentInv  = inv.inventory||0;
-    const targetDDI   = param.targetDDI||sku.targetDDI||30;
-    const incomingOrders = this.getTotalIncoming(skuId, destId);
+    const irdr      = inv.ird||param.ird||0;          // IRD REAL — para DDI
+    const currentInv= inv.inventory||0;
+    const targetDDI = param.targetDDI||sku.targetDDI||30;
+    const today     = DateUtils.today();
+    const DS        = DateUtils.dayOfWeek(today);
 
+    // Semana actual (para Ventas y InvProyectado)
+    const curWeekStart = DateUtils.weekStart(today);
+    const curWeekEnd   = DateUtils.addDays(curWeekStart, 6);
+    const wdCurrent    = this.calcWeeklyWeightedDemand(skuId, destId, curWeekStart, curWeekEnd);
+
+    // Semana siguiente (para InventarioObjetivo, visión prospectiva)
+    const nxtWeekStart = DateUtils.addDays(curWeekStart, 7);
+    const nxtWeekEnd   = DateUtils.addDays(nxtWeekStart, 6);
+    const wdNext       = this.calcWeeklyWeightedDemand(skuId, destId, nxtWeekStart, nxtWeekEnd);
+
+    // Ventas = demanda restante de la semana actual
+    const ventas = wdCurrent.total * (7 - DS) / 7;
+
+    // Pedidos que llegan esta semana (corte = fin de semana actual)
+    const ordersThisWeek = this.getOrdersInRange(skuId, destId, today, curWeekEnd);
+    const ordersQtyWeek  = ordersThisWeek.reduce((s,o)=>s+(o.qty||0), 0);
+
+    // InvProyectado al fin de la semana actual
+    const projectedInv = currentInv - ventas + ordersQtyWeek;
+
+    // InventarioObjetivo basado en demanda de la semana próxima
+    const targetInv = (wdNext.total / 7) * targetDDI;
+
+    // CompraFinal
+    const compraBruta = targetInv - projectedInv;
     const suppliers   = this.normalizeSupplierWeights(skuId, destId);
     const avgLeadTime = suppliers.length
-      ? suppliers.reduce((s,e)=>s+e.leadTime*e.normalizedWeight,0)
+      ? suppliers.reduce((s,e)=>s+e.leadTime*e.normalizedWeight, 0)
       : (param.leadTime||0);
 
-    const currentDDI  = this.calcDDI(currentInv, dailyDemand);
-    const targetInv   = this.calcTargetInventory(dailyDemand, targetDDI);
-    const projectedInv = currentInv - (dailyDemand*avgLeadTime) + incomingOrders;
-    const qtyNeeded   = Math.max(0, targetInv-projectedInv);
-    const distribution= this.calcSupplierDistribution(skuId, destId, qtyNeeded);
-    const suggestedQty= distribution.length
-      ? distribution.reduce((s,d)=>s+d.quantity,0)
-      : Math.ceil(qtyNeeded);
-    const projectedDDI= dailyDemand>0?(projectedInv+suggestedQty)/dailyDemand:null;
-    const ddiColor    = this.getDDIColor(currentDDI);
+    // Determine effective MOQ (min across active suppliers, or 1)
+    const distribution= this.calcSupplierDistribution(skuId, destId, Math.max(0, compraBruta));
+    const suggestedQty = distribution.length
+      ? distribution.reduce((s,d)=>s+d.quantity, 0)
+      : (compraBruta > 0 ? Math.ceil(compraBruta) : 0);
+
+    // DDI usando IRDR
+    const currentDDI  = irdr > 0 ? currentInv / irdr : null;
+    const projectedDDI= irdr > 0 ? (projectedInv + suggestedQty) / irdr : null;
+
+    const ddiColor = this.getDDIColor(currentDDI);
 
     const weeklyProjection  = this.calcWeeklyProjection(skuId, destId, 10);
     const firstRiskWeek     = weeklyProjection.find(w=>w.isAtRisk);
@@ -294,26 +351,36 @@ const Engine = {
     return {
       skuId, destId, skuName:sku.name, skuCode:sku.code,
       description:sku.description, category:sku.category, destName:dest.name,
-      ird, dailyDemand, weeklyDemand,
-      currentInv, incomingOrders, targetDDI, avgLeadTime,
-      currentDDI, targetInv, projectedInv, suggestedQty, qtyNeeded, projectedDDI,
-      ddiColor, distribution, weeklyProjection, firstRiskWeek, firstCriticalWeek
+      irdr,
+      weeklyDemand:  Math.round(wdCurrent.total),
+      dailyDemand:   irdr,                          // para display: IRDR = dem/día
+      currentInv, ventas: Math.round(ventas),
+      incomingOrders: this.getTotalIncoming(skuId, destId),
+      ordersThisWeek: ordersQtyWeek,
+      targetDDI, avgLeadTime,
+      currentDDI, targetInv, projectedInv, compraBruta,
+      suggestedQty, projectedDDI,
+      ddiColor, distribution,
+      weeklyProjection, firstRiskWeek, firstCriticalWeek,
+      wdCurrentDdsm: wdCurrent.ddsm,   // desglose mes por mes esta semana
+      wdNextDdsm:    wdNext.ddsm        // desglose mes por mes semana próxima
     };
   },
 
   calcAll() {
-    const db = DB.get();
-    const results = [];
-    for (const sku of db.skus)
-      for (const dest of db.destinations.filter(d=>d.active)) {
-        const row = this.calcRow(sku.id, dest.id);
-        if (row) results.push(row);
+    const db=DB.get(), results=[];
+    for(const sku of db.skus)
+      for(const dest of db.destinations.filter(d=>d.active)){
+        const row=this.calcRow(sku.id, dest.id);
+        if(row) results.push(row);
       }
     return results;
   }
 };
 
-// ═══ IMPORTADOR ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// IMPORTADOR
+// ═══════════════════════════════════════════════════════════
 const Importer = {
   async readFile(file) {
     return new Promise((resolve,reject)=>{
@@ -324,7 +391,7 @@ const Importer = {
           const sheets={};
           for(const name of wb.SheetNames)
             sheets[name]=XLSX.utils.sheet_to_json(wb.Sheets[name],{defval:null,raw:false});
-          resolve({sheets,sheetNames:wb.SheetNames});
+          resolve({sheets});
         } catch(err){reject(new Error('Error leyendo Excel: '+err.message));}
       };
       reader.onerror=()=>reject(new Error('Error leyendo archivo'));
@@ -335,70 +402,85 @@ const Importer = {
     const errors=[],processed=[];
     rows.forEach((row,i)=>{
       if(!row['SKU']||!row['Destino']){errors.push(`Fila ${i+2}: SKU y Destino requeridos`);return;}
+      const ird=parseFloat(row['IRD']||row['IRD (Dem. Diaria u/dia)']);
+      if(isNaN(ird)||ird<0){errors.push(`Fila ${i+2}: IRD debe ser número ≥ 0`);return;}
       processed.push({
         skuId:  String(row['SKU']).trim().toLowerCase().replace(/\s+/g,'_'),
         destId: String(row['Destino']).trim().toLowerCase().replace(/\s+/g,'_'),
         inventory: parseFloat(row['Inventario'])||0,
-        ird: parseFloat(row['IRD']||row['IRD (Dem. Diaria u/dia)'])||0
+        ird
       });
     });
     return {processed,errors};
   },
-  processSKUs(rows) {
+  processMonthlyIrds(rows) {
+    const errors=[],processed=[];
+    rows.forEach((row,i)=>{
+      if(!row['SKU']||!row['Destino']||!row['Año']||!row['Mes']||row['IRD_Teorico']===null){
+        errors.push(`Fila ${i+2}: SKU, Destino, Año, Mes e IRD_Teorico requeridos`);return;
+      }
+      const ird=parseFloat(row['IRD_Teorico']);
+      if(isNaN(ird)||ird<0){errors.push(`Fila ${i+2}: IRD_Teorico inválido`);return;}
+      processed.push({
+        skuId:  String(row['SKU']).trim().toLowerCase().replace(/\s+/g,'_'),
+        destId: String(row['Destino']).trim().toLowerCase().replace(/\s+/g,'_'),
+        year:   parseInt(row['Año']),
+        month:  parseInt(row['Mes']),
+        ird
+      });
+    });
+    return {processed,errors};
+  },
+  processSKUs(rows){
     const errors=[],processed=[];
     rows.forEach((row,i)=>{
       if(!row['SKU']){errors.push(`Fila ${i+2}: SKU requerido`);return;}
       const id=String(row['SKU']).trim().toLowerCase().replace(/\s+/g,'_');
       processed.push({id,code:String(row['SKU']).trim(),
-        name:        String(row['Nombre']||row['SKU']).trim(),
-        description: String(row['Descripcion']||row['Descripción']||'').trim(),
-        category:    String(row['Categoria']||row['Categoría']||'').trim(),
-        targetDDI:   parseFloat(row['DDI Objetivo'])||30, active:true});
+        name:String(row['Nombre']||row['SKU']).trim(),
+        description:String(row['Descripcion']||row['Descripción']||'').trim(),
+        category:String(row['Categoria']||row['Categoría']||'').trim(),
+        targetDDI:parseFloat(row['DDI Objetivo'])||30,active:true});
     });
     return {processed,errors};
   },
-  processSuppliers(rows) {
+  processSuppliers(rows){
     const errors=[],processed=[];
     rows.forEach((row,i)=>{
       if(!row['Proveedor']){errors.push(`Fila ${i+2}: Proveedor requerido`);return;}
       const id=String(row['Proveedor']).trim().toLowerCase().replace(/\s+/g,'_');
-      processed.push({id,
-        name:    String(row['Nombre']||row['Proveedor']).trim(),
-        contact: String(row['Contacto']||'').trim(),
-        email:   String(row['Email']||'').trim(), active:true});
+      processed.push({id,name:String(row['Nombre']||row['Proveedor']).trim(),
+        contact:String(row['Contacto']||'').trim(),email:String(row['Email']||'').trim(),active:true});
     });
     return {processed,errors};
   },
-  processMatrix(rows) {
+  processMatrix(rows){
     const errors=[],processed=[];
     rows.forEach((row,i)=>{
       if(!row['SKU']||!row['Proveedor']||!row['Destino']){errors.push(`Fila ${i+2}: faltan campos`);return;}
       processed.push({
-        skuId:      String(row['SKU']).trim().toLowerCase().replace(/\s+/g,'_'),
-        supplierId: String(row['Proveedor']).trim().toLowerCase().replace(/\s+/g,'_'),
-        destId:     String(row['Destino']).trim().toLowerCase().replace(/\s+/g,'_'),
-        leadTime:   parseFloat(row['Lead Time (dias)']||row['Lead Time (días)'])||0,
-        weight:     parseFloat(row['Peso (%)'])||25,
-        moq:        parseFloat(row['MOQ'])||1,
-        active:     String(row['Activo']||'SI').toUpperCase()!=='NO'
+        skuId:String(row['SKU']).trim().toLowerCase().replace(/\s+/g,'_'),
+        supplierId:String(row['Proveedor']).trim().toLowerCase().replace(/\s+/g,'_'),
+        destId:String(row['Destino']).trim().toLowerCase().replace(/\s+/g,'_'),
+        leadTime:parseFloat(row['Lead Time (dias)']||row['Lead Time (días)'])||0,
+        weight:parseFloat(row['Peso (%)'])||25,
+        moq:parseFloat(row['MOQ'])||1,
+        active:String(row['Activo']||'SI').toUpperCase()!=='NO'
       });
     });
     return {processed,errors};
   },
-  processOrders(rows) {
+  processOrders(rows){
     const errors=[],processed=[];
     rows.forEach((row,i)=>{
-      if(!row['SKU']||!row['Destino']||!row['Fecha Llegada']||!row['Cantidad']){
-        errors.push(`Fila ${i+2}: faltan campos`);return;
-      }
+      if(!row['SKU']||!row['Destino']||!row['Fecha Llegada']||!row['Cantidad']){errors.push(`Fila ${i+2}: faltan campos`);return;}
       let ds=String(row['Fecha Llegada']).trim();
       if(/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(ds)){const[d,m,y]=ds.split('/');ds=`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;}
-      processed.push({
-        id:`ord_${Date.now()}_${i}`,
-        skuId:       String(row['SKU']).trim().toLowerCase().replace(/\s+/g,'_'),
-        destId:      String(row['Destino']).trim().toLowerCase().replace(/\s+/g,'_'),
-        supplierId:  String(row['Proveedor']||'').trim().toLowerCase().replace(/\s+/g,'_'),
-        qty: parseFloat(row['Cantidad'])||0, arrivalDate:ds,
+      processed.push({id:`ord_${Date.now()}_${i}`,
+        skuId:String(row['SKU']).trim().toLowerCase().replace(/\s+/g,'_'),
+        destId:String(row['Destino']).trim().toLowerCase().replace(/\s+/g,'_'),
+        supplierId:String(row['Proveedor']||'').trim().toLowerCase().replace(/\s+/g,'_'),
+        qty:parseFloat(row['Cantidad'])||0,arrivalDate:ds,
         notes:String(row['Notas']||'').trim()
       });
     });
@@ -411,15 +493,16 @@ const Importer = {
       const db=DB.get();
       const run=(name,fn,target)=>{
         if(!sheets[name]){result.warnings.push(`Hoja "${name}" no encontrada`);return;}
-        const r=fn(sheets[name]); db[target]=r.processed;
+        const r=fn(sheets[name]);db[target]=r.processed;
         result.imported[name]=r.processed.length;
         result.errors.push(...r.errors.map(e=>`[${name}] ${e}`));
       };
-      run('SKUs',        this.processSKUs.bind(this),      'skus');
-      run('Inventario',  this.processInventory.bind(this), 'inventory');
-      run('Proveedores', this.processSuppliers.bind(this), 'suppliers');
-      run('Matriz',      this.processMatrix.bind(this),    'matrix');
-      run('Pedidos',     this.processOrders.bind(this),    'orders');
+      run('SKUs',         this.processSKUs.bind(this),         'skus');
+      run('Inventario',   this.processInventory.bind(this),    'inventory');
+      run('Proveedores',  this.processSuppliers.bind(this),    'suppliers');
+      run('Matriz',       this.processMatrix.bind(this),       'matrix');
+      run('Pedidos',      this.processOrders.bind(this),       'orders');
+      run('IRDs_Mensuales',this.processMonthlyIrds.bind(this),'monthlyIrds');
       db.meta.lastImport=new Date().toISOString();
       DB.save(); result.success=result.errors.length===0;
     } catch(e){result.errors.push(e.message);}
@@ -427,24 +510,25 @@ const Importer = {
   }
 };
 
-// ═══ EXPORTADOR ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// EXPORTADOR
+// ═══════════════════════════════════════════════════════════
 const Exporter = {
   exportResults(results) {
     const wb=XLSX.utils.book_new();
-    const col=n=>Array(n).fill({wch:22});
     const summary=results.map(r=>({
       'SKU':r.skuCode,'Descripcion':r.description,'Destino':r.destName,
       'Inventario':r.currentInv,
-      'IRD (u/dia)':Number(r.ird.toFixed(2)),
-      'Dem. Diaria':Number(r.dailyDemand.toFixed(2)),
-      'Dem. Semanal':Math.round(r.weeklyDemand),
-      'Dem. Mensual':Math.round(r.dailyDemand*30),
+      'IRDR (u/dia)':Number(r.irdr.toFixed(2)),
+      'Dem. Semanal (IRDR×7)':Math.round(r.irdr*7),
       'Pedidos en Camino':r.incomingOrders,
+      'Ventas (restante sem.)':r.ventas,
+      'Inv. Proyectado':Number(r.projectedInv.toFixed(0)),
+      'Inv. Objetivo':Number(r.targetInv.toFixed(0)),
+      'Compra Bruta':Number(r.compraBruta.toFixed(0)),
+      'Compra Sugerida':r.suggestedQty,
       'DDI Actual':r.currentDDI!==null?Number(r.currentDDI.toFixed(1)):'',
       'DDI Objetivo':r.targetDDI,
-      'Lead Time':Number(r.avgLeadTime.toFixed(1)),
-      'Inv. Proyectado':Number(r.projectedInv.toFixed(0)),
-      'Compra Sugerida':r.suggestedQty,
       'DDI Proyectado':r.projectedDDI!==null?Number(r.projectedDDI.toFixed(1)):'',
       'Estado':r.ddiColor.label,
       'Semana Riesgo':r.firstCriticalWeek?r.firstCriticalWeek.labelFull:r.firstRiskWeek?r.firstRiskWeek.labelFull:'Sin riesgo'
@@ -453,11 +537,11 @@ const Exporter = {
     const heatRows=[];
     for(const r of results){
       if(!r.weeklyProjection?.length) continue;
-      const base={'SKU':r.skuCode,'Destino':r.destName,'IRD':r.ird,'Dem. Diaria':r.dailyDemand};
+      const base={'SKU':r.skuCode,'Destino':r.destName,'IRDR':r.irdr};
       r.weeklyProjection.forEach(w=>{
         base[`Disp ${w.label}`]=w.projInv;
         base[`DDI ${w.label}`]=w.projDDI!==null?Number(w.projDDI.toFixed(1)):'';
-        base[`Dem.Sem ${w.label}`]=w.weeklyDemand;
+        base[`DemSem ${w.label}`]=w.weeklyDemand;
       });
       heatRows.push(base);
     }
@@ -465,10 +549,12 @@ const Exporter = {
     const distRows=[];
     for(const r of results)
       for(const d of(r.distribution||[]))
-        distRows.push({'SKU':r.skuCode,'Destino':r.destName,'Proveedor':d.supplierName,'LT':d.leadTime,'Peso%':Number((d.normalizedWeight*100).toFixed(1)),'MOQ':d.moq,'Cantidad':d.quantity});
+        distRows.push({'SKU':r.skuCode,'Destino':r.destName,'Proveedor':d.supplierName,
+          'LT':d.leadTime,'Peso%':Number((d.normalizedWeight*100).toFixed(1)),'MOQ':d.moq,'Cantidad':d.quantity});
     if(distRows.length) XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(distRows),'Distribucion');
     XLSX.writeFile(wb,`asistente_compra_${new Date().toISOString().slice(0,10)}.xlsx`);
   },
+
   generateTemplate(type) {
     const wb=XLSX.utils.book_new();
     const col=n=>Array(n).fill({wch:22});
@@ -480,8 +566,20 @@ const Exporter = {
     if(type==='completo'||type==='inventario')
       XLSX.utils.book_append_sheet(wb,Object.assign(XLSX.utils.aoa_to_sheet([
         ['SKU','Destino','Inventario','IRD (Dem. Diaria u/dia)'],
-        ['TEND001','Galapa',500,10]
+        ['TEND001','Galapa',500,10],
+        ['TEND001','Bogota',200,15]
       ]),{'!cols':col(4)}),'Inventario');
+    if(type==='completo'||type==='irds_mensuales'){
+      const t=DateUtils.today();
+      const rows=[['SKU','Destino','Año','Mes','IRD_Teorico']];
+      // 3 meses desde hoy como ejemplo
+      for(let i=0;i<3;i++){
+        const d=DateUtils.addDays(t,i*30);
+        rows.push(['TEND001','Galapa',d.getFullYear(),d.getMonth()+1,10+i]);
+        rows.push(['TEND001','Bogota',d.getFullYear(),d.getMonth()+1,15+i]);
+      }
+      XLSX.utils.book_append_sheet(wb,Object.assign(XLSX.utils.aoa_to_sheet(rows),{'!cols':col(5)}),'IRDs_Mensuales');
+    }
     if(type==='completo'||type==='proveedores')
       XLSX.utils.book_append_sheet(wb,Object.assign(XLSX.utils.aoa_to_sheet([
         ['Proveedor','Nombre','Contacto','Email'],
@@ -490,24 +588,22 @@ const Exporter = {
     if(type==='completo'||type==='matriz')
       XLSX.utils.book_append_sheet(wb,Object.assign(XLSX.utils.aoa_to_sheet([
         ['SKU','Proveedor','Destino','Lead Time (dias)','Peso (%)','MOQ','Activo'],
-        ['TEND001','PROV_A','Galapa',5,25,50,'SI'],
-        ['TEND001','PROV_B','Galapa',7,25,30,'SI']
+        ['TEND001','PROV_A','Galapa',5,25,50,'SI']
       ]),{'!cols':col(7)}),'Matriz');
     if(type==='completo'||type==='pedidos'){
       const t=DateUtils.today();
-      const d1=DateUtils.toISO(DateUtils.addDays(t,7));
-      const d2=DateUtils.toISO(DateUtils.addDays(t,14));
       XLSX.utils.book_append_sheet(wb,Object.assign(XLSX.utils.aoa_to_sheet([
         ['SKU','Destino','Proveedor','Cantidad','Fecha Llegada','Notas'],
-        ['TEND001','Galapa','PROV_A',200,d1,'OC-2026-001'],
-        ['TEND001','Bogota','PROV_B',150,d2,'OC-2026-002']
+        ['TEND001','Galapa','PROV_A',200,DateUtils.toISO(DateUtils.addDays(t,7)),'OC-001']
       ]),{'!cols':col(6)}),'Pedidos');
     }
     XLSX.writeFile(wb,type==='completo'?'Plantilla_AsistenteCompra.xlsx':`Plantilla_${type}.xlsx`);
   }
 };
 
-// ═══ ADMIN CRUD ════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// ADMIN CRUD
+// ═══════════════════════════════════════════════════════════
 const Admin = {
   saveSKU(s){const db=DB.get();const id=s.id||s.code.toLowerCase().replace(/\s+/g,'_');const i=db.skus.findIndex(x=>x.id===id);const r={...s,id};if(i>=0)db.skus[i]=r;else db.skus.push(r);DB.save();return r;},
   deleteSKU(id){const db=DB.get();db.skus=db.skus.filter(x=>x.id!==id);['inventory','params','matrix','orders','monthlyIrds'].forEach(k=>db[k]=db[k].filter(x=>x.skuId!==id));DB.save();},
@@ -521,34 +617,31 @@ const Admin = {
   saveOrder(o){const db=DB.get();const id=o.id||`ord_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;const r={...o,id};const i=db.orders.findIndex(x=>x.id===id);if(i>=0)db.orders[i]=r;else db.orders.push(r);DB.save();return r;},
   deleteOrder(id){const db=DB.get();db.orders=db.orders.filter(x=>x.id!==id);DB.save();},
   getOrdersFor(skuId,destId){return DB.get().orders.filter(o=>o.skuId===skuId&&o.destId===destId);},
-  /** Guarda un IRD teórico mensual */
-  saveMonthlyIrd(entry){
+  saveMonthlyIrd(e){
     const db=DB.get();
-    const i=db.monthlyIrds.findIndex(m=>m.skuId===entry.skuId&&m.destId===entry.destId&&m.year===entry.year&&m.month===entry.month);
-    if(i>=0) db.monthlyIrds[i]=entry; else db.monthlyIrds.push(entry);
+    const i=db.monthlyIrds.findIndex(m=>m.skuId===e.skuId&&m.destId===e.destId&&m.year===e.year&&m.month===e.month);
+    if(i>=0)db.monthlyIrds[i]=e;else db.monthlyIrds.push(e);
     DB.save();
   },
-  /** Actualiza la configuración global */
-  saveSettings(settings){
-    const db=DB.get();
-    db.settings={...(db.settings||{}), ...settings};
-    DB.save();
-  }
+  deleteMonthlyIrdsFor(skuId,destId){const db=DB.get();db.monthlyIrds=db.monthlyIrds.filter(m=>!(m.skuId===skuId&&m.destId===destId));DB.save();},
+  saveSettings(s){const db=DB.get();db.settings={...(db.settings||{}),...s};DB.save();}
 };
 
-// ═══ DATOS DEMO ════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// DATOS DEMO
+// ═══════════════════════════════════════════════════════════
 function loadDemoData() {
   const db=DB.get();
   const t=DateUtils.today();
   const d=n=>DateUtils.toISO(DateUtils.addDays(t,n));
 
   db.skus=[
-    {id:'tendidos',  code:'TEND001',name:'Tendidos',    description:'Tendidos doble plaza',      category:'Ropa de Cama',targetDDI:30,active:true},
-    {id:'almohadas', code:'ALMO001',name:'Almohadas',   description:'Almohada estandar',          category:'Ropa de Cama',targetDDI:21,active:true},
-    {id:'sabanas',   code:'SABA001',name:'Sabanas',     description:'Juego de sabanas king',      category:'Ropa de Cama',targetDDI:30,active:true},
-    {id:'cobijas',   code:'COBJ001',name:'Cobijas',     description:'Cobija polar doble',         category:'Ropa de Cama',targetDDI:45,active:true},
-    {id:'colchones', code:'COLC001',name:'Colchones',   description:'Colchon ortopedico 140x190', category:'Colchones',   targetDDI:21,active:true},
-    {id:'cojines',   code:'COJI001',name:'Cojines Deco',description:'Cojin decorativo 45x45',     category:'Decoracion',  targetDDI:30,active:true},
+    {id:'tendidos', code:'TEND001',name:'Tendidos',   description:'Tendidos doble plaza',    category:'Ropa de Cama',targetDDI:30,active:true},
+    {id:'almohadas',code:'ALMO001',name:'Almohadas',  description:'Almohada estandar',        category:'Ropa de Cama',targetDDI:21,active:true},
+    {id:'sabanas',  code:'SABA001',name:'Sabanas',    description:'Juego de sabanas king',    category:'Ropa de Cama',targetDDI:30,active:true},
+    {id:'cobijas',  code:'COBJ001',name:'Cobijas',    description:'Cobija polar doble',       category:'Ropa de Cama',targetDDI:45,active:true},
+    {id:'colchones',code:'COLC001',name:'Colchones',  description:'Colchon ortopedico',       category:'Colchones',   targetDDI:21,active:true},
+    {id:'cojines',  code:'COJI001',name:'Cojines Deco',description:'Cojin decorativo 45x45', category:'Decoracion',  targetDDI:30,active:true},
   ];
   db.suppliers=[
     {id:'prov_a',name:'Textileria Andina',   contact:'Ana Lopez',  email:'ana@textileria.co', active:true},
@@ -617,4 +710,4 @@ function loadDemoData() {
 }
 
 window.MotorReabastecimiento={DB,Engine,Importer,Exporter,Admin,loadDemoData,DDI_COLORS,DateUtils};
-})(); // end IIFE
+})();
