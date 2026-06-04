@@ -35,42 +35,7 @@
 }
 
 
-/* ─── MODO DUAL IRD ─── */
-.ird-mode-bar {
-  display:flex; align-items:center; gap:12px; flex-wrap:wrap;
-  background:var(--bg3); border:1px solid var(--border); border-radius:var(--radius2);
-  padding:12px 16px; margin-bottom:16px;
-}
-.ird-mode-btn {
-  padding:6px 16px; border-radius:var(--radius); font-size:12.5px; font-weight:600;
-  border:1px solid var(--border2); background:transparent; color:var(--text2); cursor:pointer; transition:all .15s;
-}
-.ird-mode-btn.active { background:var(--accent); border-color:var(--accent); color:white; }
-.ird-mode-btn:hover:not(.active) { background:var(--bg2); color:var(--text); }
-.monthly-ird-panel {
-  background:var(--bg3); border:1px solid var(--accent)44; border-radius:var(--radius2);
-  padding:16px; margin-bottom:16px; animation: fadeIn .2s;
-}
-.monthly-ird-grid {
-  display:grid; gap:8px; overflow-x:auto;
-}
-.month-col-header {
-  font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
-  color:var(--accent); padding:4px 8px; text-align:center; background:var(--accent-glow);
-  border-radius:var(--radius);
-}
-.ird-sku-label {
-  font-size:11px; font-weight:600; color:var(--text2); padding:4px 6px;
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-}
-.ird-cell input {
-  width:100%; background:var(--bg2); border:1px solid var(--border);
-  border-radius:4px; padding:5px 7px; color:var(--text); font-size:12px;
-  font-family:var(--font-mono); text-align:center; outline:none; transition:border-color .15s;
-}
-.ird-cell input:focus { border-color:var(--accent); }
-.ird-cell input.has-value { border-color:var(--success)66; color:var(--success); }
-.month-breakdown { font-size:10px; color:var(--text3); margin-top:3px; line-height:1.4; }
+/* ird-mode removed */
 /* ─── HEATMAP ─── */
 .heatmap-wrap { overflow-x: auto; border-radius: var(--radius2); border: 1px solid var(--border); }
 .heatmap-table { border-collapse: collapse; font-size: 12px; min-width: 100%; }
@@ -246,7 +211,7 @@ function initializeApp() {
   window.loadDemoData = M.loadDemoData; window.DDI_COLORS = M.DDI_COLORS;
   window.DateUtils = M.DateUtils;
   DB.load();
-  if (!DB.get().skus.length) { loadDemoData(); toast('Datos de demo cargados','info'); }
+  const dbState = DB.get(); if (!dbState.skus.length && !dbState.inventory.length) { loadDemoData(); toast('Datos de demostración cargados','info'); }
   recalcAll(false); updateFooter(); navigateTo('dashboard');
 }
 document.addEventListener('DOMContentLoaded', initializeApp);
@@ -260,7 +225,7 @@ function ddiRowClass(ddi){ if(ddi===null) return ''; if(ddi<0) return 'ddi-criti
 
 function recalcAll(notify=true){ cachedResults=Engine.calcAll(); updateFooter(); if(notify) toast(`${cachedResults.length} filas recalculadas`,'success'); renderCurrentView(); }
 function renderCurrentView(){ navigateTo(currentView, false); }
-function updateFooter(){ const db=DB.get(); const el=document.getElementById('sidebar-footer'); if(!el) return; const last=db.meta.lastImport?new Date(db.meta.lastImport).toLocaleDateString('es-CO'):'Sin importar'; const mode=(db.settings||{}).irdMode||'real'; el.textContent=`${db.skus.length} SKUs · ${db.orders.length} pedidos · IRD: ${mode} · ${last}`; }
+function updateFooter(){ const db=DB.get(); const el=document.getElementById('sidebar-footer'); if(!el) return; const last=db.meta.lastImport?new Date(db.meta.lastImport).toLocaleDateString('es-CO'):'Sin importar'; el.textContent=`${db.skus.length} SKUs · ${db.orders.length} pedidos · ${last}`; }
 
 function navigateTo(view, updateActive=true){
   currentView=view;
@@ -313,13 +278,6 @@ function renderDashboard(){
 // HEATMAP SEMANAL + MODO DUAL IRD
 // ══════════════════════════════════════════════════════
 
-function getIrdMode() { return (DB.get().settings||{}).irdMode || 'real'; }
-
-function setIrdMode(mode) {
-  Admin.saveSettings({ irdMode: mode });
-  recalcAll(false);
-  renderHeatmap();
-}
 
 function saveMonthlyIrd(skuId, destId, year, month, val) {
   const ird = parseFloat(val);
@@ -333,7 +291,6 @@ function saveMonthlyIrd(skuId, destId, year, month, val) {
 
 function renderHeatmap(destFilter='', catFilter='') {
   const db      = DB.get();
-  const mode    = getIrdMode();
   let results   = [...cachedResults];
   if (destFilter) results = results.filter(r => r.destId === destFilter);
   if (catFilter)  results = results.filter(r => r.category === catFilter);
@@ -344,15 +301,7 @@ function renderHeatmap(destFilter='', catFilter='') {
   const cats   = [...new Set(cachedResults.map(r => r.category).filter(Boolean))];
   const today  = DateUtils.today();
 
-  // Monthly IRDs are now managed from Admin > Inventario
-  let monthlyPanel = ''; // panel removed from heatmap
-  // IRDs teóricos se gestionan desde Admin > Inventario
-  if (mode === 'teorico') {
-    monthlyPanel = `<div style="padding:8px 14px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:var(--radius);font-size:12px;color:var(--text2);margin-bottom:12px">
-      <strong style="color:var(--warning)">Modo Teórico activo</strong> — Los IRDs mensuales se configuran en <a href="#" onclick="navigateTo('admin-inventory')" style="color:var(--accent)">Administrar → Inventario</a>.
-      ${DB.get().monthlyIrds.length === 0 ? ' <span style="color:var(--danger)">⚠ Sin IRDs teóricos definidos — usando IRDR como fallback.</span>' : ''}
-    </div>`;
-  }
+
 
   document.getElementById('content').innerHTML = `
     <div class="section-header">
@@ -361,26 +310,16 @@ function renderHeatmap(destFilter='', catFilter='') {
       <div class="section-actions"><button class="btn btn-secondary btn-sm" onclick="exportResults()">↓ Exportar</button></div>
     </div>
 
-    <div class="ird-mode-bar">
-      <span style="font-size:12px;font-weight:700;color:var(--text2)">Modo IRD:</span>
-      <button class="ird-mode-btn ${mode==='real'?'active':''}" onclick="setIrdMode('real')">📊 Real (único)</button>
-      <button class="ird-mode-btn ${mode==='teorico'?'active':''}" onclick="setIrdMode('teorico')">📅 Teórico (por mes)</button>
-      ${mode==='real'
-        ? `<span style="font-size:11px;color:var(--text3)">Usando IRD fijo por SKU+Destino para toda la proyección.</span>`
-        : `<span style="font-size:11px;color:var(--warning)">Usando IRD mensual variable — ingresa los valores en la tabla abajo.</span>`}
-      <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
-        <select class="filter-select" id="hm-dest" onchange="renderHeatmap(this.value,document.getElementById('hm-cat').value)">
-          <option value="">Todos los destinos</option>
-          ${dests.map(d=>`<option value="${d.id}" ${destFilter===d.id?'selected':''}>${d.name}</option>`).join('')}
-        </select>
-        <select class="filter-select" id="hm-cat" onchange="renderHeatmap(document.getElementById('hm-dest').value,this.value)">
-          <option value="">Todas las categorías</option>
-          ${cats.map(c=>`<option value="${c}" ${catFilter===c?'selected':''}>${c}</option>`).join('')}
-        </select>
-      </div>
+    <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+      <select class="filter-select" id="hm-dest" onchange="renderHeatmap(this.value,document.getElementById('hm-cat').value)">
+        <option value="">Todos los destinos</option>
+        ${dests.map(d=>`<option value="${d.id}" ${destFilter===d.id?'selected':''}>${d.name}</option>`).join('')}
+      </select>
+      <select class="filter-select" id="hm-cat" onchange="renderHeatmap(document.getElementById('hm-dest').value,this.value)">
+        <option value="">Todas las categorías</option>
+        ${cats.map(c=>`<option value="${c}" ${catFilter===c?'selected':''}>${c}</option>`).join('')}
+      </select>
     </div>
-
-    ${monthlyPanel}
 
     ${ddiLegendHtml()}
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap">
@@ -448,12 +387,6 @@ function renderHeatmapCells() {
   wrap.innerHTML = buildHeatmapTable(results, weeks);
 }
 
-function clearMonthlyIrds() {
-  if (!confirm('¿Borrar todos los IRDs teóricos mensuales?')) return;
-  const db = DB.get(); db.monthlyIrds = []; DB.save();
-  recalcAll(false); renderHeatmap();
-  toast('IRDs teóricos eliminados', 'info');
-}
 
 // Tooltip del heatmap
 function showHeatTip(e, dataStr) {
@@ -717,8 +650,140 @@ function renderAdminMatrix(sf='',df=''){ const db=DB.get(); let m=[...db.matrix]
 function openMatrixForm(e=null){ const db=DB.get(); document.getElementById('form-modal-title').textContent=e?'Editar':'Nueva Entrada'; document.getElementById('form-modal-body').innerHTML=`<div class="form-grid"><div class="form-group"><label>SKU *</label><select id="f-msku"><option value="">—</option>${db.skus.map(s=>`<option value="${s.id}" ${e?.skuId===s.id?'selected':''}>${s.code} — ${s.name}</option>`).join('')}</select></div><div class="form-group"><label>Proveedor *</label><select id="f-msup"><option value="">—</option>${db.suppliers.map(s=>`<option value="${s.id}" ${e?.supplierId===s.id?'selected':''}>${s.name}</option>`).join('')}</select></div><div class="form-group"><label>Destino *</label><select id="f-mdest"><option value="">—</option>${db.destinations.map(d=>`<option value="${d.id}" ${e?.destId===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div><div class="form-group"><label>Lead Time (días)</label><input id="f-mlt" type="number" value="${e?.leadTime||7}" min="0"></div><div class="form-group"><label>Peso (%)</label><input id="f-mw" type="number" value="${e?.weight||25}" min="0" max="100"></div><div class="form-group"><label>MOQ (mín. pedido)</label><input id="f-mmoq" type="number" value="${e?.moq||1}" min="1" placeholder="Ej: 50"></div><div class="form-group"><label>Activo</label><select id="f-mact"><option value="true" ${e?.active!==false?'selected':''}>Sí</option><option value="false" ${e?.active===false?'selected':''}>No</option></select></div></div>`; formModalCallback=()=>{ const skuId=document.getElementById('f-msku').value; const supplierId=document.getElementById('f-msup').value; const destId=document.getElementById('f-mdest').value; if(!skuId||!supplierId||!destId){toast('Todos los campos requeridos','error');return;} Admin.saveMatrixEntry({skuId,supplierId,destId,leadTime:parseFloat(document.getElementById('f-mlt').value)||0,weight:parseFloat(document.getElementById('f-mw').value)||25,moq:parseFloat(document.getElementById('f-mmoq').value)||1,active:document.getElementById('f-mact').value==='true'}); closeModal('form-modal'); recalcAll(false); renderAdminMatrix(); toast('Guardado','success'); }; document.getElementById('form-modal').style.display='flex'; }
 function deleteMatrixEntry(skuId,supplierId,destId){ if(!confirm('¿Eliminar?')) return; Admin.deleteMatrixEntry(skuId,supplierId,destId); recalcAll(false); renderAdminMatrix(); toast('Eliminado','info'); }
 
-function renderAdminInventory(sf='',df=''){ const db=DB.get(); let items=[...db.inventory]; if(sf) items=items.filter(i=>i.skuId===sf); if(df) items=items.filter(i=>i.destId===df); document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">Inventario</div></div><div class="section-actions"><button class="btn btn-primary btn-sm" onclick="openInventoryForm()">+ Nueva Fila</button><button class="btn btn-danger btn-sm" onclick="clearAll('inventory')" title="Borrar todo el inventario">✕ Borrar todo</button></div></div><div class="toolbar"><select class="filter-select" id="inv-sku" onchange="renderAdminInventory(this.value,document.getElementById('inv-dest').value)"><option value="">Todos los SKUs</option>${db.skus.map(s=>`<option value="${s.id}" ${sf===s.id?'selected':''}>${s.code}</option>`).join('')}</select><select class="filter-select" id="inv-dest" onchange="renderAdminInventory(document.getElementById('inv-sku').value,this.value)"><option value="">Todos los destinos</option>${db.destinations.map(d=>`<option value="${d.id}" ${df===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div><div class="table-wrap"><table><thead><tr><th>SKU</th><th>Destino</th><th>Inventario Disp.</th><th>IRD (u/día)</th><th>Dem. Mensual</th><th></th></tr></thead><tbody>${items.length?items.map(inv=>{ const sku=db.skus.find(s=>s.id===inv.skuId); const dest=db.destinations.find(d=>d.id===inv.destId); const dm=(inv.ird||0)*30; return `<tr><td class="bold">${sku?.code||inv.skuId}</td><td><span class="chip">${dest?.name||inv.destId}</span></td><td class="mono">${fmtInt(inv.inventory)}</td><td class="mono" style="color:var(--accent)">${fmt(inv.ird,2)}</td><td class="mono" style="color:var(--text3)">${fmtInt(dm)}</td><td style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm btn-icon" onclick='openInventoryForm(${JSON.stringify(inv)})'>✎</button><button class="btn btn-danger btn-sm btn-icon" onclick="deleteInventory('${inv.skuId}','${inv.destId}')">✕</button></td></tr>`; }).join(''):`<tr><td colspan="7"><div class="empty-state"><div class="empty-title">Sin datos</div></div></td></tr>`}</tbody></table></div>`; }
-function openInventoryForm(inv=null){ const db=DB.get(); document.getElementById('form-modal-title').textContent=inv?'Editar Inventario':'Nueva Fila'; document.getElementById('form-modal-body').innerHTML=`<div class="form-grid"><div class="form-group"><label>SKU *</label><select id="f-isku"><option value="">—</option>${db.skus.map(s=>`<option value="${s.id}" ${inv?.skuId===s.id?'selected':''}>${s.code} — ${s.name}</option>`).join('')}</select></div><div class="form-group"><label>Destino *</label><select id="f-idest"><option value="">—</option>${db.destinations.map(d=>`<option value="${d.id}" ${inv?.destId===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div><div class="form-group"><label>Inventario Disponible</label><input id="f-iinv" type="number" value="${inv?.inventory||0}" min="0" placeholder="Unidades disponibles inmediatas"></div><div class="form-group" style="grid-column:1/-1"><label>IRD Real — Demanda Diaria (u/día) <span style="color:var(--danger)">*</span></label><input id="f-iird" type="number" step="0.01" value="${inv?.ird||''}" min="0" placeholder="Requerido — ej: 10.5" required oninput="document.getElementById('f-idd-calc').textContent=(parseFloat(this.value)||0).toFixed(2)+' u/día · ×7 = '+(((parseFloat(this.value)||0)*7).toFixed(1))+' u/sem · ×30 = '+(((parseFloat(this.value)||0)*30).toFixed(1))+' u/mes'" style="border:1px solid var(--accent)"><div id="f-idd-calc" style="margin-top:4px;font-family:var(--font-mono);font-size:12px;color:var(--text3)">${inv?.ird?`${fmt(inv.ird,2)} u/día · ×7 = ${fmtInt((inv.ird)*7)} u/sem · ×30 = ${fmtInt((inv.ird)*30)} u/mes`:''}</div></div></div>`; formModalCallback=()=>{ const skuId=document.getElementById('f-isku').value; const destId=document.getElementById('f-idest').value; if(!skuId||!destId){toast('SKU y Destino requeridos','error');return;} Admin.saveInventory({skuId,destId,inventory:parseFloat(document.getElementById('f-iinv').value)||0,ird:parseFloat(document.getElementById('f-iird').value)||0}); closeModal('form-modal'); recalcAll(false); renderAdminInventory(); toast('Guardado','success'); }; document.getElementById('form-modal').style.display='flex'; }
+function renderAdminInventory(sf='', df='') {
+  const db = DB.get();
+  let items = [...db.inventory];
+  if (sf) items = items.filter(i => i.skuId === sf);
+  if (df) items = items.filter(i => i.destId === df);
+
+  document.getElementById('content').innerHTML = `
+    <div class="section-header">
+      <div>
+        <div class="section-title">Inventario</div>
+        <div class="section-sub">${db.inventory.length} registros · IRD = demanda diaria real (IRDR)</div>
+      </div>
+      <div class="section-actions">
+        <button class="btn btn-primary btn-sm" onclick="openInventoryForm()">+ Nueva Fila</button>
+        <button class="btn btn-danger btn-sm" onclick="clearAll('inventory')" title="Borrar todo">✕ Borrar todo</button>
+      </div>
+    </div>
+    <div class="toolbar">
+      <select class="filter-select" id="inv-sku"
+        onchange="renderAdminInventory(this.value, document.getElementById('inv-dest').value)">
+        <option value="">Todos los SKUs</option>
+        ${db.skus.map(s => `<option value="${s.id}" ${sf===s.id?'selected':''}>${s.code}</option>`).join('')}
+      </select>
+      <select class="filter-select" id="inv-dest"
+        onchange="renderAdminInventory(document.getElementById('inv-sku').value, this.value)">
+        <option value="">Todos los destinos</option>
+        ${db.destinations.map(d => `<option value="${d.id}" ${df===d.id?'selected':''}>${d.name}</option>`).join('')}
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>SKU</th><th>Destino</th>
+            <th>Inventario</th>
+            <th>IRDR (u/día) <span style="color:var(--danger)">*</span></th>
+            <th>Dem/sem (×7)</th>
+            <th>Dem/mes (×30)</th>
+            <th>IRDs Teóricos</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.length ? items.map(inv => {
+            const sku   = db.skus.find(s => s.id === inv.skuId);
+            const dest  = db.destinations.find(d => d.id === inv.destId);
+            const mIrds = db.monthlyIrds.filter(m => m.skuId === inv.skuId && m.destId === inv.destId);
+            const mBadge = mIrds.length > 0
+              ? `<span class="chip chip-success" style="cursor:pointer" onclick="openMonthlyIrdsModal('${inv.skuId}','${inv.destId}')">${mIrds.length} mes${mIrds.length>1?'es':''} ✎</span>`
+              : `<button class="btn btn-secondary btn-sm" onclick="openMonthlyIrdsModal('${inv.skuId}','${inv.destId}')">+ Añadir IRDs</button>`;
+            return `<tr>
+              <td class="bold">${sku?.code || inv.skuId}</td>
+              <td><span class="chip">${dest?.name || inv.destId}</span></td>
+              <td style="font-family:var(--font-mono)">${fmtInt(inv.inventory)}</td>
+              <td style="font-family:var(--font-mono);color:var(--accent);font-weight:700">${fmt(inv.ird, 2)}</td>
+              <td style="font-family:var(--font-mono);color:var(--text2)">${fmtInt((inv.ird||0)*7)}</td>
+              <td style="font-family:var(--font-mono);color:var(--text3)">${fmtInt((inv.ird||0)*30)}</td>
+              <td>${mBadge}</td>
+              <td style="display:flex;gap:4px">
+                <button class="btn btn-ghost btn-sm btn-icon" onclick='openInventoryForm(${JSON.stringify(inv)})' title="Editar">✎</button>
+                <button class="btn btn-danger btn-sm btn-icon" onclick="deleteInventory('${inv.skuId}','${inv.destId}')" title="Eliminar">✕</button>
+              </td>
+            </tr>`;
+          }).join('') : `<tr><td colspan="8"><div class="empty-state">
+            <div class="empty-icon">≡</div>
+            <div class="empty-title">Sin datos de inventario</div>
+            <div class="empty-sub">Crea filas manualmente o importa desde Excel</div>
+          </div></td></tr>`}
+        </tbody>
+      </table>
+    </div>
+    <div style="margin-top:10px;font-size:11px;color:var(--text3)">
+      💡 <strong>IRDs Teóricos</strong>: haz clic en "Añadir IRDs" para definir demanda variable por mes.
+      Se usan en el Heatmap y los cálculos de proyección en lugar de IRDR para ese mes.
+    </div>`;
+}
+
+
+function openInventoryForm(inv = null) {
+  const db = DB.get();
+  document.getElementById('form-modal-title').textContent = inv ? 'Editar Inventario' : 'Nueva Fila de Inventario';
+  document.getElementById('form-modal-body').innerHTML = `
+    <div class="form-grid">
+      <div class="form-group">
+        <label>SKU *</label>
+        <select id="f-isku">
+          <option value="">— Seleccionar —</option>
+          ${db.skus.map(s => `<option value="${s.id}" ${inv?.skuId===s.id?'selected':''}>${s.code} — ${s.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Destino *</label>
+        <select id="f-idest">
+          <option value="">— Seleccionar —</option>
+          ${db.destinations.map(d => `<option value="${d.id}" ${inv?.destId===d.id?'selected':''}>${d.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Inventario Disponible</label>
+        <input id="f-iinv" type="number" value="${inv?.inventory||0}" min="0" placeholder="Unidades disponibles">
+      </div>
+      <div class="form-group">
+        <label>IRDR — Demanda Diaria Real (u/día) <span style="color:var(--danger)">*</span></label>
+        <input id="f-iird" type="number" step="0.01" value="${inv?.ird||''}" min="0"
+          placeholder="Requerido — ej: 10.5"
+          oninput="document.getElementById('f-iird-preview').textContent=
+            'Semanal: '+(parseFloat(this.value)||0).toFixed(1)+'×7 = '+((parseFloat(this.value)||0)*7).toFixed(0)+' u  |  Mensual: '+(((parseFloat(this.value)||0)*30).toFixed(0))+' u'">
+      </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <div id="f-iird-preview" style="padding:6px 10px;background:var(--bg3);border-radius:var(--radius);font-family:var(--font-mono);font-size:12px;color:var(--accent)">
+          ${inv?.ird ? `Semanal: ${(inv.ird*7).toFixed(0)} u  |  Mensual: ${(inv.ird*30).toFixed(0)} u` : 'Ingresa el IRD para ver el resumen'}
+        </div>
+      </div>
+    </div>`;
+  formModalCallback = () => {
+    const skuId  = document.getElementById('f-isku').value;
+    const destId = document.getElementById('f-idest').value;
+    const ird    = parseFloat(document.getElementById('f-iird').value);
+    if (!skuId || !destId) { toast('SKU y Destino son requeridos', 'error'); return; }
+    if (isNaN(ird) || ird < 0) { toast('IRD debe ser un número ≥ 0', 'error'); return; }
+    Admin.saveInventory({
+      skuId, destId,
+      inventory: parseFloat(document.getElementById('f-iinv').value) || 0,
+      ird
+    });
+    closeModal('form-modal');
+    recalcAll(false);
+    renderAdminInventory();
+    toast('Inventario guardado', 'success');
+  };
+  document.getElementById('form-modal').style.display = 'flex';
+}
+
+
 function deleteInventory(skuId,destId){ if(!confirm('¿Eliminar?')) return; const db=DB.get(); db.inventory=db.inventory.filter(i=>!(i.skuId===skuId&&i.destId===destId)); DB.save(); recalcAll(false); renderAdminInventory(); toast('Eliminado','info'); }
 
 // ══════════════════════════════════════════════════════
