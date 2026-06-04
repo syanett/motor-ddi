@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * motor.js — Motor de Reabastecimiento DDI v3.0
+ * motor.js — Motor de Reabastecimiento DDI v3.1
  * Cambios v3:
  *   - MOQ por SKU x Proveedor (campo en matrix, no en skus)
  *   - Eliminado inventario comprometido; inventory = disponible inmediato
@@ -52,7 +52,7 @@ const DB = {
       // Pedidos en camino con fecha exacta
       // { id, skuId, destId, supplierId, qty, arrivalDate, notes }
       orders: [],
-      meta: { lastImport: null, version: '3.0' }
+      meta: { lastImport: null, version: '3.1' }
     };
   },
 
@@ -119,8 +119,9 @@ const Engine = {
   },
 
   /** dailyDemand = ird * 30. Unica fuente de verdad. */
+  /** IRD = demanda diaria directa (unidades/día). ird*30 = demanda mensual. */
   getDailyDemand(ird) {
-    return (ird || 0) * 30;
+    return ird || 0;
   },
 
   calcDDI(inventory, dailyDemand) {
@@ -363,7 +364,7 @@ const Importer = {
     rows.forEach((row, i) => {
       if (!row['Proveedor']) { errors.push(`Fila ${i+2}: Proveedor requerido`); return; }
       const id = String(row['Proveedor']).trim().toLowerCase().replace(/\s+/g,'_');
-      processed.push({ id, name: String(row['Proveedor']).trim(), contact: String(row['Contacto']||'').trim(), email: String(row['Email']||'').trim(), active: true });
+      processed.push({ id, name: String(row['Nombre'] || row['Proveedor']).trim(), contact: String(row['Contacto']||'').trim(), email: String(row['Email']||'').trim(), active: true });
     });
     return { processed, errors };
   },
@@ -497,8 +498,8 @@ const Exporter = {
       // v3: solo Inventario e IRD (sin committedInv, sin dailyDemand)
       XLSX.utils.book_append_sheet(wb,
         Object.assign(XLSX.utils.aoa_to_sheet([
-          ['SKU','Destino','Inventario','IRD'],
-          ['TEND001','Galapa',500,0.3333]
+          ['SKU','Destino','Inventario','IRD (Dem. Diaria u/dia)'],
+          ['TEND001','Galapa',500,10]
         ]), { '!cols': col(4) }), 'Inventario');
     }
     if (type === 'completo' || type === 'proveedores') {
@@ -609,19 +610,20 @@ function loadDemoData() {
   ];
 
   // v3: inventory sin committedInv; ird = dailyDemand_original / 30
+  // v3.1: ird = demanda diaria directa (unidades/día)
   db.inventory = [
-    { skuId:'tendidos',  destId:'galapa', inventory:120, ird:0.3333 },
-    { skuId:'almohadas', destId:'galapa', inventory:80,  ird:0.2667 },
-    { skuId:'sabanas',   destId:'galapa', inventory:45,  ird:0.1667 },
-    { skuId:'cobijas',   destId:'galapa', inventory:200, ird:0.0667 },
-    { skuId:'colchones', destId:'galapa', inventory:3,   ird:0.0167 },
-    { skuId:'cojines',   destId:'galapa', inventory:360, ird:0.4    },
-    { skuId:'tendidos',  destId:'bogota', inventory:60,  ird:0.5    },
-    { skuId:'almohadas', destId:'bogota', inventory:30,  ird:0.4    },
-    { skuId:'sabanas',   destId:'bogota', inventory:20,  ird:0.2333 },
-    { skuId:'cobijas',   destId:'bogota', inventory:90,  ird:0.1    },
-    { skuId:'colchones', destId:'bogota', inventory:8,   ird:0.0333 },
-    { skuId:'cojines',   destId:'bogota', inventory:144, ird:0.6    },
+    { skuId:'tendidos',  destId:'galapa', inventory:120, ird:10   },
+    { skuId:'almohadas', destId:'galapa', inventory:80,  ird:8    },
+    { skuId:'sabanas',   destId:'galapa', inventory:45,  ird:5    },
+    { skuId:'cobijas',   destId:'galapa', inventory:200, ird:2    },
+    { skuId:'colchones', destId:'galapa', inventory:3,   ird:0.5  },
+    { skuId:'cojines',   destId:'galapa', inventory:360, ird:12   },
+    { skuId:'tendidos',  destId:'bogota', inventory:60,  ird:15   },
+    { skuId:'almohadas', destId:'bogota', inventory:30,  ird:12   },
+    { skuId:'sabanas',   destId:'bogota', inventory:20,  ird:7    },
+    { skuId:'cobijas',   destId:'bogota', inventory:90,  ird:3    },
+    { skuId:'colchones', destId:'bogota', inventory:8,   ird:1    },
+    { skuId:'cojines',   destId:'bogota', inventory:144, ird:18   },
   ];
 
   db.orders = [
