@@ -3,9 +3,41 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Motor DDI — Reabastecimiento</title>
+<title>Asistente de Compra</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+CiAgPHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iIzFlM2E1ZiIvPgogIDxyZWN0IHg9IjIiIHk9IjIiIHdpZHRoPSIyOCIgaGVpZ2h0PSIyOCIgcng9IjUiIGZpbGw9IiMyNTYzZWIiLz4KICA8dGV4dCB4PSIxNiIgeT0iMTQiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXdlaWdodD0iNzAwIiBmb250LXNpemU9IjkiIGZpbGw9IndoaXRlIiBsZXR0ZXItc3BhY2luZz0iMC41Ij5BU0lTVC48L3RleHQ+CiAgPHRleHQgeD0iMTYiIHk9IjI0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9IjcwMCIgZm9udC1zaXplPSI5IiBmaWxsPSJ3aGl0ZSIgbGV0dGVyLXNwYWNpbmc9IjAuNSI+Q09NUFJBPC90ZXh0Pgo8L3N2Zz4=">
 <link rel="stylesheet" href="styles.css">
 <style>
+
+/* ─── TABLA REABASTECIMIENTO SCROLLABLE ─── */
+.rep-wrap { overflow-x: auto; border-radius: var(--radius2); border: 1px solid var(--border); cursor: grab; }
+.rep-wrap:active { cursor: grabbing; }
+.rep-table { border-collapse: collapse; font-size: 12.5px; min-width: 1180px; width: 100%; }
+.rep-table thead th {
+  background: var(--bg3); padding: 9px 11px; text-align: left;
+  font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--text3); border-bottom: 1px solid var(--border); white-space: nowrap;
+  position: sticky; top: 0; z-index: 2;
+}
+.rep-table td { padding: 9px 11px; border-bottom: 1px solid var(--border); color: var(--text2); vertical-align: middle; white-space: nowrap; }
+.rep-table tbody tr:hover { background: var(--bg3); }
+.rep-table .col-sticky {
+  position: sticky; left: 0; z-index: 1;
+  background: var(--bg2); border-right: 1px solid var(--border2);
+}
+.rep-table tbody tr:hover .col-sticky { background: var(--bg3); }
+.rep-scroll-hint { font-size: 11px; color: var(--text3); text-align: right; padding: 4px 2px; margin-bottom: 4px; }
+
+
+/* ─── BORRAR TODO ─── */
+.btn-danger-solid { background: var(--danger); color: white; border-color: var(--danger); }
+.btn-danger-solid:hover { background: #b91c1c; border-color: #b91c1c; }
+.clear-warning {
+  display:flex; align-items:center; gap:10px;
+  background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.3);
+  border-radius: var(--radius); padding: 10px 14px; margin-top: 12px;
+  font-size: 12px; color: var(--text2);
+}
+
 /* ─── HEATMAP ─── */
 .heatmap-wrap { overflow-x: auto; border-radius: var(--radius2); border: 1px solid var(--border); }
 .heatmap-table { border-collapse: collapse; font-size: 12px; min-width: 100%; }
@@ -92,10 +124,10 @@
   <nav id="sidebar">
     <div class="sidebar-logo">
       <div class="logo-mark">
-        <div class="logo-icon">DDI</div>
+        <div class="logo-icon">AC</div>
         <div class="logo-text">
-          <strong>Motor DDI</strong>
-          <span>v2.0 — Reabastecimiento</span>
+          <strong>Asistente de Compra</strong>
+          <span>v3.1 — Reabastecimiento</span>
         </div>
       </div>
     </div>
@@ -200,7 +232,7 @@ function updateFooter(){ const db=DB.get(); const el=document.getElementById('si
 function navigateTo(view, updateActive=true){
   currentView=view;
   if(updateActive) document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.view===view));
-  const titles={ dashboard:['Dashboard','Vista general del inventario'], heatmap:['Heatmap Semanal','Disponibilidad proyectada semana a semana'], replenishment:['Reabastecimiento','Compras sugeridas por SKU y destino'], 'suppliers-view':['Por Proveedor','Distribución de compras por proveedor'], 'admin-orders':['Pedidos en Camino','Gestión de pedidos con fecha de llegada'], 'admin-skus':['SKUs','Gestión de productos'], 'admin-destinations':['Destinos','Bodegas y centros de distribución'], 'admin-suppliers':['Proveedores','Gestión de proveedores'], 'admin-matrix':['Matriz SKU-Prov-Dest','Lead times, pesos y rutas'], 'admin-inventory':['Inventario','Niveles de inventario y demanda'], import:['Importar Excel','Carga masiva desde .xlsx'], templates:['Plantillas Excel','Descarga plantillas'] };
+  const titles={ dashboard:['Dashboard','Vista general del inventario'], heatmap:['Heatmap Semanal','Disponibilidad proyectada semana a semana · Asistente de Compra'], replenishment:['Reabastecimiento','Compras sugeridas por SKU y destino'], 'suppliers-view':['Por Proveedor','Distribución de compras por proveedor'], 'admin-orders':['Pedidos en Camino','Gestión de pedidos con fecha de llegada'], 'admin-skus':['SKUs','Gestión de productos'], 'admin-destinations':['Destinos','Bodegas y centros de distribución'], 'admin-suppliers':['Proveedores','Gestión de proveedores'], 'admin-matrix':['Matriz SKU-Prov-Dest','Lead times, pesos y rutas'], 'admin-inventory':['Inventario','Niveles de inventario y demanda'], import:['Importar Excel','Carga masiva desde .xlsx'], templates:['Plantillas Excel','Descarga plantillas'] };
   const [t,s]=titles[view]||['Vista','']; document.getElementById('header-title').textContent=t; document.getElementById('header-subtitle').textContent=s;
   const views={ dashboard:renderDashboard, heatmap:renderHeatmap, replenishment:renderReplenishment, 'suppliers-view':renderSuppliersView, 'admin-orders':renderAdminOrders, 'admin-skus':renderAdminSKUs, 'admin-destinations':renderAdminDestinations, 'admin-suppliers':renderAdminSuppliers, 'admin-matrix':renderAdminMatrix, 'admin-inventory':renderAdminInventory, import:renderImport, templates:renderTemplates };
   (views[view]||(() => {}))(); closeSidebar();
@@ -359,14 +391,31 @@ function renderReplenishment(query='',destFilter='',catFilter=''){
       <select class="filter-select" id="rep-dest" onchange="renderReplenishment(document.getElementById('rep-search').value,this.value,document.getElementById('rep-cat').value)"><option value="">Todos los destinos</option>${dests.map(d=>`<option value="${d.id}" ${destFilter===d.id?'selected':''}>${d.name}</option>`).join('')}</select>
       <select class="filter-select" id="rep-cat" onchange="renderReplenishment(document.getElementById('rep-search').value,document.getElementById('rep-dest').value,this.value)"><option value="">Todas las categorías</option>${cats.map(c=>`<option value="${c}" ${catFilter===c?'selected':''}>${c}</option>`).join('')}</select>
     </div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>SKU</th><th>Descripción</th><th>Destino</th><th>Inventario</th><th>Dem/día (IRD)</th><th>Dem/mes</th><th>DDI Actual</th><th>DDI Obj.</th><th>LT</th><th>Pedidos</th><th>Inv. Proy.</th><th>Compra</th><th>Riesgo en</th><th></th></tr></thead>
+    <div class="rep-scroll-hint">← Desliza para ver todas las columnas →</div>
+    <div class="rep-wrap" id="rep-wrap">
+      <table class="rep-table">
+      <thead><tr>
+        <th class="col-sticky" style="min-width:110px">SKU</th>
+        <th style="min-width:140px">Descripción</th>
+        <th style="min-width:80px">Destino</th>
+        <th style="min-width:80px">Inventario</th>
+        <th style="min-width:85px">Dem/día</th>
+        <th style="min-width:75px">Dem/mes</th>
+        <th style="min-width:120px">DDI Actual</th>
+        <th style="min-width:65px">DDI Obj.</th>
+        <th style="min-width:55px">LT</th>
+        <th style="min-width:70px">Pedidos</th>
+        <th style="min-width:85px">Inv. Proy.</th>
+        <th style="min-width:80px">Compra</th>
+        <th style="min-width:100px">Riesgo en</th>
+        <th style="min-width:36px"></th>
+      </tr></thead>
       <tbody>${results.length?results.map(r=>{
         const riskHtml=r.firstCriticalWeek?`<span style="color:var(--danger);font-size:11px;font-weight:700">⚠ ${r.firstCriticalWeek.label}</span>`:r.firstRiskWeek?`<span style="color:var(--warning);font-size:11px">⚡ ${r.firstRiskWeek.label}</span>`:`<span style="color:var(--text3);font-size:11px">—</span>`;
         return `<tr class="${r.firstCriticalWeek?'ddi-critical':r.firstRiskWeek?'ddi-vlow':''}">
-          <td class="bold">${r.skuCode}</td>
-          <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.description}</td>
-          <td><span class="chip">${r.destName}</span></td>
+          <td class="col-sticky bold">${r.skuCode}<br><span style="font-size:10px;color:var(--text3);font-weight:400">${r.destName}</span></td>
+          <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis">${r.description}</td>
+          <td><span class="chip" style="font-size:10px">${r.destName}</span></td>
           <td class="mono">${fmtInt(r.currentInv)}</td>
           <td class="mono" style="color:var(--accent)">${fmt(r.dailyDemand,2)}</td>
           <td class="mono" style="color:var(--text3)">${fmtInt(r.dailyDemand*30)}</td>
@@ -377,9 +426,9 @@ function renderReplenishment(query='',destFilter='',catFilter=''){
           <td class="mono" style="color:${r.projectedInv<0?'var(--danger)':'var(--text2)'}">${fmtInt(r.projectedInv)}</td>
           <td><span class="${r.suggestedQty>0?'qty-pos':'qty-zero'}">${r.suggestedQty>0?fmtInt(r.suggestedQty):'—'}</span></td>
           <td>${riskHtml}</td>
-          <td><button class="btn btn-ghost btn-sm btn-icon" onclick="showSKUDetail('${r.skuId}','${r.destId}')">⊕</button></td>
+          <td><button class="btn btn-ghost btn-sm btn-icon" onclick="showSKUDetail('${r.skuId}','${r.destId}')" title="Ver detalle">⊕</button></td>
         </tr>`;
-      }).join(''):`<tr><td colspan="13"><div class="empty-state"><div class="empty-icon">○</div><div class="empty-title">Sin resultados</div></div></td></tr>`}
+      }).join(''):`<tr><td colspan="14" class="col-sticky" style="position:static"><div class="empty-state"><div class="empty-icon">○</div><div class="empty-title">Sin resultados</div></div></td></tr>`}
       </tbody>
     </table></div>`;
 }
@@ -462,6 +511,7 @@ function renderAdminOrders(skuFilter='', destFilter=''){
       <div><div class="section-title">Pedidos en Camino</div><div class="section-sub">${db.orders.length} pedidos totales · ${orders.length} pendientes de llegada</div></div>
       <div class="section-actions">
         <button class="btn btn-primary btn-sm" onclick="openOrderForm()">+ Nuevo Pedido</button>
+        <button class="btn btn-danger btn-sm" onclick="clearAll('orders')" title="Borrar todos los pedidos">✕ Borrar todo</button>
       </div>
     </div>
     <div class="toolbar">
@@ -549,23 +599,23 @@ function deleteOrder(id){
 // ══════════════════════════════════════════════════════
 // ADMIN SKUs, DESTINOS, PROVEEDORES, MATRIZ, INVENTARIO
 // ══════════════════════════════════════════════════════
-function renderAdminSKUs(){ const db=DB.get(); document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">SKUs</div><div class="section-sub">${db.skus.length} productos</div></div><div class="section-actions"><button class="btn btn-primary btn-sm" onclick="openSKUForm()">+ Nuevo SKU</button></div></div><div class="table-wrap"><table><thead><tr><th>Código</th><th>Nombre</th><th>Categoría</th><th>DDI Obj.</th><th>MOQ</th><th>Estado</th><th></th></tr></thead><tbody>${db.skus.length?db.skus.map(s=>`<tr><td class="bold">${s.code}</td><td>${s.name}</td><td><span class="chip">${s.category}</span></td><td class="mono">${s.targetDDI}d</td><td class="mono">${s.moq}</td><td><span class="chip ${s.active?'chip-success':'chip-danger'}">${s.active?'Activo':'Inactivo'}</span></td><td style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm btn-icon" onclick='openSKUForm(${JSON.stringify(s)})'>✎</button><button class="btn btn-danger btn-sm btn-icon" onclick="deleteSKU('${s.id}')">✕</button></td></tr>`).join(''):`<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">▦</div><div class="empty-title">Sin SKUs</div></div></td></tr>`}</tbody></table></div>`; }
+function renderAdminSKUs(){ const db=DB.get(); document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">SKUs</div><div class="section-sub">${db.skus.length} productos</div></div><div class="section-actions"><button class="btn btn-primary btn-sm" onclick="openSKUForm()">+ Nuevo SKU</button><button class="btn btn-danger btn-sm" onclick="clearAll('skus')" title="Borrar todos los registros">✕ Borrar todo</button></div></div><div class="table-wrap"><table><thead><tr><th>Código</th><th>Nombre</th><th>Categoría</th><th>DDI Obj.</th><th>MOQ</th><th>Estado</th><th></th></tr></thead><tbody>${db.skus.length?db.skus.map(s=>`<tr><td class="bold">${s.code}</td><td>${s.name}</td><td><span class="chip">${s.category}</span></td><td class="mono">${s.targetDDI}d</td><td class="mono">${s.moq}</td><td><span class="chip ${s.active?'chip-success':'chip-danger'}">${s.active?'Activo':'Inactivo'}</span></td><td style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm btn-icon" onclick='openSKUForm(${JSON.stringify(s)})'>✎</button><button class="btn btn-danger btn-sm btn-icon" onclick="deleteSKU('${s.id}')">✕</button></td></tr>`).join(''):`<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">▦</div><div class="empty-title">Sin SKUs</div></div></td></tr>`}</tbody></table></div>`; }
 function openSKUForm(sku=null){ document.getElementById('form-modal-title').textContent=sku?'Editar SKU':'Nuevo SKU'; document.getElementById('form-modal-body').innerHTML=`<div class="form-grid"><div class="form-group"><label>Código *</label><input id="f-code" value="${sku?.code||''}" placeholder="TEND001"></div><div class="form-group"><label>Nombre *</label><input id="f-name" value="${sku?.name||''}" placeholder="Tendidos"></div><div class="form-group"><label>Descripción</label><input id="f-desc" value="${sku?.description||''}" placeholder="Descripción del producto"></div><div class="form-group"><label>Categoría</label><input id="f-cat" value="${sku?.category||''}" placeholder="Ropa de Cama"></div><div class="form-group"><label>DDI Objetivo (días)</label><input id="f-ddi" type="number" value="${sku?.targetDDI||30}" min="1"></div></div><div style="margin-top:10px;padding:8px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;color:var(--text3)">💡 El MOQ se define por proveedor en la <strong>Matriz SKU-Prov-Dest</strong></div>`; formModalCallback=()=>{ const code=document.getElementById('f-code').value.trim(); const name=document.getElementById('f-name').value.trim(); if(!code||!name){toast('Código y nombre requeridos','error');return;} Admin.saveSKU({id:sku?.id,code,name,description:document.getElementById('f-desc').value.trim(),category:document.getElementById('f-cat').value.trim(),targetDDI:parseFloat(document.getElementById('f-ddi').value)||30,active:true}); closeModal('form-modal'); recalcAll(false); renderAdminSKUs(); toast('SKU guardado','success'); }; document.getElementById('form-modal').style.display='flex'; }
 function deleteSKU(id){ if(!confirm('¿Eliminar?')) return; Admin.deleteSKU(id); recalcAll(false); renderAdminSKUs(); toast('Eliminado','info'); }
 
-function renderAdminDestinations(){ const db=DB.get(); document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">Destinos</div></div><div class="section-actions"><button class="btn btn-primary btn-sm" onclick="openDestForm()">+ Nuevo</button></div></div><div class="table-wrap"><table><thead><tr><th>ID</th><th>Nombre</th><th>Estado</th><th></th></tr></thead><tbody>${db.destinations.map(d=>`<tr><td class="mono">${d.id}</td><td class="bold">${d.name}</td><td><span class="chip ${d.active?'chip-success':'chip-danger'}">${d.active?'Activo':'Inactivo'}</span></td><td style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm btn-icon" onclick='openDestForm(${JSON.stringify(d)})'>✎</button><button class="btn btn-danger btn-sm btn-icon" onclick="deleteDest('${d.id}')">✕</button></td></tr>`).join('')}</tbody></table></div>`; }
+function renderAdminDestinations(){ const db=DB.get(); document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">Destinos</div></div><div class="section-actions"><button class="btn btn-primary btn-sm" onclick="openDestForm()">+ Nuevo</button><button class="btn btn-danger btn-sm" onclick="clearAll('destinations')" title="Borrar todos los destinos">✕ Borrar todo</button></div></div><div class="table-wrap"><table><thead><tr><th>ID</th><th>Nombre</th><th>Estado</th><th></th></tr></thead><tbody>${db.destinations.map(d=>`<tr><td class="mono">${d.id}</td><td class="bold">${d.name}</td><td><span class="chip ${d.active?'chip-success':'chip-danger'}">${d.active?'Activo':'Inactivo'}</span></td><td style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm btn-icon" onclick='openDestForm(${JSON.stringify(d)})'>✎</button><button class="btn btn-danger btn-sm btn-icon" onclick="deleteDest('${d.id}')">✕</button></td></tr>`).join('')}</tbody></table></div>`; }
 function openDestForm(dest=null){ document.getElementById('form-modal-title').textContent=dest?'Editar Destino':'Nuevo Destino'; document.getElementById('form-modal-body').innerHTML=`<div class="form-grid"><div class="form-group"><label>Nombre *</label><input id="f-dname" value="${dest?.name||''}"></div><div class="form-group"><label>Estado</label><select id="f-dact"><option value="true" ${dest?.active!==false?'selected':''}>Activo</option><option value="false" ${dest?.active===false?'selected':''}>Inactivo</option></select></div></div>`; formModalCallback=()=>{ const name=document.getElementById('f-dname').value.trim(); if(!name){toast('Nombre requerido','error');return;} Admin.saveDestination({id:dest?.id,name,active:document.getElementById('f-dact').value==='true'}); closeModal('form-modal'); recalcAll(false); renderAdminDestinations(); toast('Guardado','success'); }; document.getElementById('form-modal').style.display='flex'; }
 function deleteDest(id){ if(!confirm('¿Eliminar?')) return; Admin.deleteDestination(id); recalcAll(false); renderAdminDestinations(); toast('Eliminado','info'); }
 
-function renderAdminSuppliers(){ const db=DB.get(); document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">Proveedores</div></div><div class="section-actions"><button class="btn btn-primary btn-sm" onclick="openSupplierForm()">+ Nuevo</button></div></div><div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Contacto</th><th>Email</th><th>Estado</th><th></th></tr></thead><tbody>${db.suppliers.map(s=>`<tr><td class="bold">${s.name}</td><td>${s.contact||'—'}</td><td>${s.email||'—'}</td><td><span class="chip ${s.active?'chip-success':'chip-danger'}">${s.active?'Activo':'Inactivo'}</span></td><td style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm btn-icon" onclick='openSupplierForm(${JSON.stringify(s)})'>✎</button><button class="btn btn-danger btn-sm btn-icon" onclick="deleteSupplier('${s.id}')">✕</button></td></tr>`).join('')}</tbody></table></div>`; }
+function renderAdminSuppliers(){ const db=DB.get(); document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">Proveedores</div></div><div class="section-actions"><button class="btn btn-primary btn-sm" onclick="openSupplierForm()">+ Nuevo</button><button class="btn btn-danger btn-sm" onclick="clearAll('suppliers')" title="Borrar todos los proveedores">✕ Borrar todo</button></div></div><div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Contacto</th><th>Email</th><th>Estado</th><th></th></tr></thead><tbody>${db.suppliers.map(s=>`<tr><td class="bold">${s.name}</td><td>${s.contact||'—'}</td><td>${s.email||'—'}</td><td><span class="chip ${s.active?'chip-success':'chip-danger'}">${s.active?'Activo':'Inactivo'}</span></td><td style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm btn-icon" onclick='openSupplierForm(${JSON.stringify(s)})'>✎</button><button class="btn btn-danger btn-sm btn-icon" onclick="deleteSupplier('${s.id}')">✕</button></td></tr>`).join('')}</tbody></table></div>`; }
 function openSupplierForm(s=null){ document.getElementById('form-modal-title').textContent=s?'Editar Proveedor':'Nuevo Proveedor'; document.getElementById('form-modal-body').innerHTML=`<div class="form-grid"><div class="form-group"><label>Nombre *</label><input id="f-sname" value="${s?.name||''}"></div><div class="form-group"><label>Contacto</label><input id="f-scont" value="${s?.contact||''}"></div><div class="form-group"><label>Email</label><input id="f-semail" value="${s?.email||''}"></div></div>`; formModalCallback=()=>{ const name=document.getElementById('f-sname').value.trim(); if(!name){toast('Nombre requerido','error');return;} Admin.saveSupplier({id:s?.id,name,contact:document.getElementById('f-scont').value.trim(),email:document.getElementById('f-semail').value.trim(),active:true}); closeModal('form-modal'); recalcAll(false); renderAdminSuppliers(); toast('Guardado','success'); }; document.getElementById('form-modal').style.display='flex'; }
 function deleteSupplier(id){ if(!confirm('¿Eliminar?')) return; Admin.deleteSupplier(id); recalcAll(false); renderAdminSuppliers(); toast('Eliminado','info'); }
 
-function renderAdminMatrix(sf='',df=''){ const db=DB.get(); let m=[...db.matrix]; if(sf) m=m.filter(x=>x.skuId===sf); if(df) m=m.filter(x=>x.destId===df); document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">Matriz SKU–Prov–Dest</div></div><div class="section-actions"><button class="btn btn-primary btn-sm" onclick="openMatrixForm()">+ Nueva</button></div></div><div class="toolbar"><select class="filter-select" id="mat-sku" onchange="renderAdminMatrix(this.value,document.getElementById('mat-dest').value)"><option value="">Todos los SKUs</option>${db.skus.map(s=>`<option value="${s.id}" ${sf===s.id?'selected':''}>${s.code}</option>`).join('')}</select><select class="filter-select" id="mat-dest" onchange="renderAdminMatrix(document.getElementById('mat-sku').value,this.value)"><option value="">Todos los destinos</option>${db.destinations.map(d=>`<option value="${d.id}" ${df===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div><div class="table-wrap"><table><thead><tr><th>SKU</th><th>Proveedor</th><th>Destino</th><th>LT (días)</th><th>Peso %</th><th>Norm %</th><th>MOQ</th><th>Activo</th><th></th></tr></thead><tbody>${m.length?m.map(x=>{ const sku=db.skus.find(s=>s.id===x.skuId); const sup=db.suppliers.find(s=>s.id===x.supplierId); const dest=db.destinations.find(d=>d.id===x.destId); const norm=Engine.normalizeSupplierWeights(x.skuId,x.destId); const ne=norm.find(n=>n.supplierId===x.supplierId); return `<tr><td class="bold">${sku?.code||x.skuId}</td><td>${sup?.name||x.supplierId}</td><td><span class="chip">${dest?.name||x.destId}</span></td><td class="mono">${x.leadTime}d</td><td class="mono">${fmt(x.weight,1)}%</td><td class="mono">${ne?fmt(ne.normalizedWeight*100,1):'—'}%</td><td class="mono" style="color:var(--accent)">${x.moq||1}</td><td><span class="chip ${x.active?'chip-success':'chip-danger'}">${x.active?'Sí':'No'}</span></td><td style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm btn-icon" onclick='openMatrixForm(${JSON.stringify(x)})'>✎</button><button class="btn btn-danger btn-sm btn-icon" onclick="deleteMatrixEntry('${x.skuId}','${x.supplierId}','${x.destId}')">✕</button></td></tr>`; }).join(''):`<tr><td colspan="8"><div class="empty-state"><div class="empty-title">Sin entradas</div></div></td></tr>`}</tbody></table></div>`; }
+function renderAdminMatrix(sf='',df=''){ const db=DB.get(); let m=[...db.matrix]; if(sf) m=m.filter(x=>x.skuId===sf); if(df) m=m.filter(x=>x.destId===df); document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">Matriz SKU–Prov–Dest</div></div><div class="section-actions"><button class="btn btn-primary btn-sm" onclick="openMatrixForm()">+ Nueva</button><button class="btn btn-danger btn-sm" onclick="clearAll('matrix')" title="Borrar toda la matriz">✕ Borrar todo</button></div></div><div class="toolbar"><select class="filter-select" id="mat-sku" onchange="renderAdminMatrix(this.value,document.getElementById('mat-dest').value)"><option value="">Todos los SKUs</option>${db.skus.map(s=>`<option value="${s.id}" ${sf===s.id?'selected':''}>${s.code}</option>`).join('')}</select><select class="filter-select" id="mat-dest" onchange="renderAdminMatrix(document.getElementById('mat-sku').value,this.value)"><option value="">Todos los destinos</option>${db.destinations.map(d=>`<option value="${d.id}" ${df===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div><div class="table-wrap"><table><thead><tr><th>SKU</th><th>Proveedor</th><th>Destino</th><th>LT (días)</th><th>Peso %</th><th>Norm %</th><th>MOQ</th><th>Activo</th><th></th></tr></thead><tbody>${m.length?m.map(x=>{ const sku=db.skus.find(s=>s.id===x.skuId); const sup=db.suppliers.find(s=>s.id===x.supplierId); const dest=db.destinations.find(d=>d.id===x.destId); const norm=Engine.normalizeSupplierWeights(x.skuId,x.destId); const ne=norm.find(n=>n.supplierId===x.supplierId); return `<tr><td class="bold">${sku?.code||x.skuId}</td><td>${sup?.name||x.supplierId}</td><td><span class="chip">${dest?.name||x.destId}</span></td><td class="mono">${x.leadTime}d</td><td class="mono">${fmt(x.weight,1)}%</td><td class="mono">${ne?fmt(ne.normalizedWeight*100,1):'—'}%</td><td class="mono" style="color:var(--accent)">${x.moq||1}</td><td><span class="chip ${x.active?'chip-success':'chip-danger'}">${x.active?'Sí':'No'}</span></td><td style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm btn-icon" onclick='openMatrixForm(${JSON.stringify(x)})'>✎</button><button class="btn btn-danger btn-sm btn-icon" onclick="deleteMatrixEntry('${x.skuId}','${x.supplierId}','${x.destId}')">✕</button></td></tr>`; }).join(''):`<tr><td colspan="8"><div class="empty-state"><div class="empty-title">Sin entradas</div></div></td></tr>`}</tbody></table></div>`; }
 function openMatrixForm(e=null){ const db=DB.get(); document.getElementById('form-modal-title').textContent=e?'Editar':'Nueva Entrada'; document.getElementById('form-modal-body').innerHTML=`<div class="form-grid"><div class="form-group"><label>SKU *</label><select id="f-msku"><option value="">—</option>${db.skus.map(s=>`<option value="${s.id}" ${e?.skuId===s.id?'selected':''}>${s.code} — ${s.name}</option>`).join('')}</select></div><div class="form-group"><label>Proveedor *</label><select id="f-msup"><option value="">—</option>${db.suppliers.map(s=>`<option value="${s.id}" ${e?.supplierId===s.id?'selected':''}>${s.name}</option>`).join('')}</select></div><div class="form-group"><label>Destino *</label><select id="f-mdest"><option value="">—</option>${db.destinations.map(d=>`<option value="${d.id}" ${e?.destId===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div><div class="form-group"><label>Lead Time (días)</label><input id="f-mlt" type="number" value="${e?.leadTime||7}" min="0"></div><div class="form-group"><label>Peso (%)</label><input id="f-mw" type="number" value="${e?.weight||25}" min="0" max="100"></div><div class="form-group"><label>MOQ (mín. pedido)</label><input id="f-mmoq" type="number" value="${e?.moq||1}" min="1" placeholder="Ej: 50"></div><div class="form-group"><label>Activo</label><select id="f-mact"><option value="true" ${e?.active!==false?'selected':''}>Sí</option><option value="false" ${e?.active===false?'selected':''}>No</option></select></div></div>`; formModalCallback=()=>{ const skuId=document.getElementById('f-msku').value; const supplierId=document.getElementById('f-msup').value; const destId=document.getElementById('f-mdest').value; if(!skuId||!supplierId||!destId){toast('Todos los campos requeridos','error');return;} Admin.saveMatrixEntry({skuId,supplierId,destId,leadTime:parseFloat(document.getElementById('f-mlt').value)||0,weight:parseFloat(document.getElementById('f-mw').value)||25,moq:parseFloat(document.getElementById('f-mmoq').value)||1,active:document.getElementById('f-mact').value==='true'}); closeModal('form-modal'); recalcAll(false); renderAdminMatrix(); toast('Guardado','success'); }; document.getElementById('form-modal').style.display='flex'; }
 function deleteMatrixEntry(skuId,supplierId,destId){ if(!confirm('¿Eliminar?')) return; Admin.deleteMatrixEntry(skuId,supplierId,destId); recalcAll(false); renderAdminMatrix(); toast('Eliminado','info'); }
 
-function renderAdminInventory(sf='',df=''){ const db=DB.get(); let items=[...db.inventory]; if(sf) items=items.filter(i=>i.skuId===sf); if(df) items=items.filter(i=>i.destId===df); document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">Inventario</div></div><div class="section-actions"><button class="btn btn-primary btn-sm" onclick="openInventoryForm()">+ Nueva Fila</button></div></div><div class="toolbar"><select class="filter-select" id="inv-sku" onchange="renderAdminInventory(this.value,document.getElementById('inv-dest').value)"><option value="">Todos los SKUs</option>${db.skus.map(s=>`<option value="${s.id}" ${sf===s.id?'selected':''}>${s.code}</option>`).join('')}</select><select class="filter-select" id="inv-dest" onchange="renderAdminInventory(document.getElementById('inv-sku').value,this.value)"><option value="">Todos los destinos</option>${db.destinations.map(d=>`<option value="${d.id}" ${df===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div><div class="table-wrap"><table><thead><tr><th>SKU</th><th>Destino</th><th>Inventario Disp.</th><th>IRD (u/día)</th><th>Dem. Mensual</th><th></th></tr></thead><tbody>${items.length?items.map(inv=>{ const sku=db.skus.find(s=>s.id===inv.skuId); const dest=db.destinations.find(d=>d.id===inv.destId); const dm=(inv.ird||0)*30; return `<tr><td class="bold">${sku?.code||inv.skuId}</td><td><span class="chip">${dest?.name||inv.destId}</span></td><td class="mono">${fmtInt(inv.inventory)}</td><td class="mono" style="color:var(--accent)">${fmt(inv.ird,2)}</td><td class="mono" style="color:var(--text3)">${fmtInt(dm)}</td><td style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm btn-icon" onclick='openInventoryForm(${JSON.stringify(inv)})'>✎</button><button class="btn btn-danger btn-sm btn-icon" onclick="deleteInventory('${inv.skuId}','${inv.destId}')">✕</button></td></tr>`; }).join(''):`<tr><td colspan="7"><div class="empty-state"><div class="empty-title">Sin datos</div></div></td></tr>`}</tbody></table></div>`; }
+function renderAdminInventory(sf='',df=''){ const db=DB.get(); let items=[...db.inventory]; if(sf) items=items.filter(i=>i.skuId===sf); if(df) items=items.filter(i=>i.destId===df); document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">Inventario</div></div><div class="section-actions"><button class="btn btn-primary btn-sm" onclick="openInventoryForm()">+ Nueva Fila</button><button class="btn btn-danger btn-sm" onclick="clearAll('inventory')" title="Borrar todo el inventario">✕ Borrar todo</button></div></div><div class="toolbar"><select class="filter-select" id="inv-sku" onchange="renderAdminInventory(this.value,document.getElementById('inv-dest').value)"><option value="">Todos los SKUs</option>${db.skus.map(s=>`<option value="${s.id}" ${sf===s.id?'selected':''}>${s.code}</option>`).join('')}</select><select class="filter-select" id="inv-dest" onchange="renderAdminInventory(document.getElementById('inv-sku').value,this.value)"><option value="">Todos los destinos</option>${db.destinations.map(d=>`<option value="${d.id}" ${df===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div><div class="table-wrap"><table><thead><tr><th>SKU</th><th>Destino</th><th>Inventario Disp.</th><th>IRD (u/día)</th><th>Dem. Mensual</th><th></th></tr></thead><tbody>${items.length?items.map(inv=>{ const sku=db.skus.find(s=>s.id===inv.skuId); const dest=db.destinations.find(d=>d.id===inv.destId); const dm=(inv.ird||0)*30; return `<tr><td class="bold">${sku?.code||inv.skuId}</td><td><span class="chip">${dest?.name||inv.destId}</span></td><td class="mono">${fmtInt(inv.inventory)}</td><td class="mono" style="color:var(--accent)">${fmt(inv.ird,2)}</td><td class="mono" style="color:var(--text3)">${fmtInt(dm)}</td><td style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm btn-icon" onclick='openInventoryForm(${JSON.stringify(inv)})'>✎</button><button class="btn btn-danger btn-sm btn-icon" onclick="deleteInventory('${inv.skuId}','${inv.destId}')">✕</button></td></tr>`; }).join(''):`<tr><td colspan="7"><div class="empty-state"><div class="empty-title">Sin datos</div></div></td></tr>`}</tbody></table></div>`; }
 function openInventoryForm(inv=null){ const db=DB.get(); document.getElementById('form-modal-title').textContent=inv?'Editar Inventario':'Nueva Fila'; document.getElementById('form-modal-body').innerHTML=`<div class="form-grid"><div class="form-group"><label>SKU *</label><select id="f-isku"><option value="">—</option>${db.skus.map(s=>`<option value="${s.id}" ${inv?.skuId===s.id?'selected':''}>${s.code} — ${s.name}</option>`).join('')}</select></div><div class="form-group"><label>Destino *</label><select id="f-idest"><option value="">—</option>${db.destinations.map(d=>`<option value="${d.id}" ${inv?.destId===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div><div class="form-group"><label>Inventario Disponible</label><input id="f-iinv" type="number" value="${inv?.inventory||0}" min="0" placeholder="Unidades disponibles inmediatas"></div><div class="form-group"><label>IRD — Demanda Diaria (u/día)</label><input id="f-iird" type="number" step="0.01" value="${inv?.ird||0}" min="0" placeholder="ej: 10.5" oninput="document.getElementById('f-idd-calc').textContent=(parseFloat(this.value)||0).toFixed(2)+' u/día  →  '+(((parseFloat(this.value)||0)*30).toFixed(1))+' u/mes'"></div><div class="form-group" style="grid-column:1/-1"><label>Demanda Mensual implícita (IRD × 30)</label><div id="f-idd-calc" style="padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font-mono);font-size:13px;color:var(--text3)">${(inv?.ird||0).toFixed(2)} u/día  →  ${((inv?.ird||0)*30).toFixed(1)} u/mes</div></div></div>`; formModalCallback=()=>{ const skuId=document.getElementById('f-isku').value; const destId=document.getElementById('f-idest').value; if(!skuId||!destId){toast('SKU y Destino requeridos','error');return;} Admin.saveInventory({skuId,destId,inventory:parseFloat(document.getElementById('f-iinv').value)||0,ird:parseFloat(document.getElementById('f-iird').value)||0}); closeModal('form-modal'); recalcAll(false); renderAdminInventory(); toast('Guardado','success'); }; document.getElementById('form-modal').style.display='flex'; }
 function deleteInventory(skuId,destId){ if(!confirm('¿Eliminar?')) return; const db=DB.get(); db.inventory=db.inventory.filter(i=>!(i.skuId===skuId&&i.destId===destId)); DB.save(); recalcAll(false); renderAdminInventory(); toast('Eliminado','info'); }
 
@@ -588,6 +638,98 @@ document.querySelectorAll('.modal-overlay').forEach(el=>{ el.addEventListener('c
 function toast(msg,type='info',dur=3000){ const c=document.getElementById('toast-container'); const t=document.createElement('div'); t.className=`toast toast-${type}`; const icons={success:'✓',error:'✕',warning:'⚠',info:'◉'}; t.innerHTML=`<span style="color:var(--${type==='error'?'danger':type==='warning'?'warning':type==='success'?'success':'accent'})">${icons[type]}</span><span>${msg}</span>`; c.appendChild(t); setTimeout(()=>{ t.style.opacity='0'; t.style.transition='opacity .3s'; setTimeout(()=>t.remove(),300); },dur); }
 function openSidebar(){ document.getElementById('sidebar').classList.add('open'); document.getElementById('sidebar-overlay').classList.add('show'); }
 function closeSidebar(){ document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebar-overlay').classList.remove('show'); }
+
+// ══════════════════════════════════════════════════════
+// BORRAR TODO — funciones por entidad
+// ══════════════════════════════════════════════════════
+function clearAll(entity) {
+  const db = DB.get();
+  const config = {
+    skus: {
+      label: 'SKUs',
+      count: () => db.skus.length,
+      detail: () => db.skus.map(s => s.code).join(', '),
+      action: () => { db.skus=[]; db.inventory=[]; db.params=[]; db.matrix=[]; db.orders=[]; },
+      reload: renderAdminSKUs
+    },
+    suppliers: {
+      label: 'Proveedores',
+      count: () => db.suppliers.length,
+      detail: () => db.suppliers.map(s => s.name).join(', '),
+      action: () => { db.suppliers=[]; db.matrix=[]; },
+      reload: renderAdminSuppliers
+    },
+    destinations: {
+      label: 'Destinos',
+      count: () => db.destinations.length,
+      detail: () => db.destinations.map(d => d.name).join(', '),
+      action: () => { db.destinations=[]; db.inventory=[]; db.params=[]; db.matrix=[]; db.orders=[]; },
+      reload: renderAdminDestinations
+    },
+    matrix: {
+      label: 'entradas de la Matriz',
+      count: () => db.matrix.length,
+      detail: () => db.matrix.length + ' entradas',
+      action: () => { db.matrix=[]; },
+      reload: renderAdminMatrix
+    },
+    inventory: {
+      label: 'registros de Inventario',
+      count: () => db.inventory.length,
+      detail: () => db.inventory.length + ' registros',
+      action: () => { db.inventory=[]; },
+      reload: renderAdminInventory
+    },
+    orders: {
+      label: 'Pedidos en Camino',
+      count: () => db.orders.length,
+      detail: () => db.orders.length + ' pedidos',
+      action: () => { db.orders=[]; },
+      reload: renderAdminOrders
+    },
+  };
+
+  const cfg = config[entity];
+  if (!cfg) return;
+  const count = cfg.count();
+  if (count === 0) { toast(`No hay ${cfg.label} para borrar`, 'info'); return; }
+
+  // Step 1: show detailed confirmation
+  const detail = cfg.detail();
+  const shortDetail = detail.length > 80 ? detail.slice(0,80) + '...' : detail;
+  const confirmed = confirm(
+    `⚠️ BORRAR TODOS LOS ${cfg.label.toUpperCase()}
+
+` +
+    `Se eliminarán ${count} elemento(s):
+${shortDetail}
+
+` +
+    `Esta acción NO se puede deshacer.
+
+` +
+    `¿Confirmar eliminación?`
+  );
+  if (!confirmed) return;
+
+  // Step 2: second confirmation for destructive operations
+  const doubleConfirm = confirm(
+    `⛔ CONFIRMACIÓN FINAL
+
+` +
+    `Estás a punto de borrar ${count} ${cfg.label}.
+` +
+    `Escribe OK para continuar o Cancelar para abortar.`
+  );
+  if (!doubleConfirm) return;
+
+  cfg.action();
+  DB.save();
+  recalcAll(false);
+  cfg.reload();
+  toast(`${count} ${cfg.label} eliminados`, 'info');
+}
+
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') document.querySelectorAll('.modal-overlay').forEach(m=>m.style.display='none'); });
 </script>
 </body>
