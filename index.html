@@ -135,6 +135,7 @@
         <div class="nav-item active" data-view="dashboard"      onclick="navigateTo('dashboard')"><span class="nav-icon">◉</span> Dashboard</div>
         <div class="nav-item"        data-view="heatmap"         onclick="navigateTo('heatmap')"><span class="nav-icon">▦</span> Heatmap Semanal</div>
         <div class="nav-item"        data-view="replenishment"   onclick="navigateTo('replenishment')"><span class="nav-icon">⬆</span> Reabastecimiento</div>
+        <div class="nav-item"        data-view="purchase-orders"  onclick="navigateTo('purchase-orders')"><span class="nav-icon">🛒</span> Órdenes de Compra</div>
         <div class="nav-item"        data-view="suppliers-view"  onclick="navigateTo('suppliers-view')"><span class="nav-icon">⊞</span> Por Proveedor</div>
       </div>
       <div class="nav-section">
@@ -211,7 +212,16 @@ function initializeApp() {
   window.loadDemoData = M.loadDemoData; window.DDI_COLORS = M.DDI_COLORS;
   window.DateUtils = M.DateUtils;
   DB.load();
-  const dbState = DB.get(); if (!dbState.skus.length && !dbState.inventory.length) { loadDemoData(); toast('Datos de demostración cargados','info'); }
+  const dbState = DB.get();
+  // Cargar demo SOLO si no hay absolutamente ningún dato
+  const hasUserData = dbState.skus.length > 0 ||
+                      dbState.inventory.length > 0 ||
+                      dbState.suppliers.length > 0 ||
+                      dbState.orders.length > 0;
+  if (!hasUserData) {
+    loadDemoData();
+    toast('Datos de demostración cargados', 'info');
+  }
   recalcAll(false); updateFooter(); navigateTo('dashboard');
 }
 document.addEventListener('DOMContentLoaded', initializeApp);
@@ -230,7 +240,8 @@ function updateFooter(){ const db=DB.get(); const el=document.getElementById('si
 function navigateTo(view, updateActive=true){
   currentView=view;
   if(updateActive) document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.view===view));
-  const titles={ dashboard:['Dashboard','Vista general del inventario'], heatmap:['Heatmap Semanal','Disponibilidad proyectada semana a semana · Asistente de Compra'], replenishment:['Reabastecimiento','Compras sugeridas por SKU y destino'], 'suppliers-view':['Por Proveedor','Distribución de compras por proveedor'], 'admin-orders':['Pedidos en Camino','Gestión de pedidos con fecha de llegada'], 'admin-skus':['SKUs','Gestión de productos'], 'admin-destinations':['Destinos','Bodegas y centros de distribución'], 'admin-suppliers':['Proveedores','Gestión de proveedores'], 'admin-matrix':['Matriz SKU-Prov-Dest','Lead times, pesos y rutas'], 'admin-inventory':['Inventario','Niveles de inventario y demanda'], import:['Importar Excel','Carga masiva desde .xlsx'], templates:['Plantillas Excel','Descarga plantillas'] };
+  const titles={ dashboard:['Dashboard','Vista general del inventario'], 'purchase-orders':['Órdenes de Compra','Distribución por proveedor con fechas de entrega'],
+    heatmap:['Heatmap Semanal','Disponibilidad proyectada semana a semana · Asistente de Compra'], replenishment:['Reabastecimiento','Compras sugeridas por SKU y destino'], 'suppliers-view':['Por Proveedor','Distribución de compras por proveedor'], 'admin-orders':['Pedidos en Camino','Gestión de pedidos con fecha de llegada'], 'admin-skus':['SKUs','Gestión de productos'], 'admin-destinations':['Destinos','Bodegas y centros de distribución'], 'admin-suppliers':['Proveedores','Gestión de proveedores'], 'admin-matrix':['Matriz SKU-Prov-Dest','Lead times, pesos y rutas'], 'admin-inventory':['Inventario','Niveles de inventario y demanda'], import:['Importar Excel','Carga masiva desde .xlsx'], templates:['Plantillas Excel','Descarga plantillas'] };
   const [t,s]=titles[view]||['Vista','']; document.getElementById('header-title').textContent=t; document.getElementById('header-subtitle').textContent=s;
   const views={ dashboard:renderDashboard, heatmap:renderHeatmap, replenishment:renderReplenishment, 'suppliers-view':renderSuppliersView, 'admin-orders':renderAdminOrders, 'admin-skus':renderAdminSKUs, 'admin-destinations':renderAdminDestinations, 'admin-suppliers':renderAdminSuppliers, 'admin-matrix':renderAdminMatrix, 'admin-inventory':renderAdminInventory, import:renderImport, templates:renderTemplates };
   (views[view]||(() => {}))(); closeSidebar();
@@ -469,6 +480,100 @@ function renderReplenishment(query='',destFilter='',catFilter=''){
 }
 
 // ══════════════════════════════════════════════════════
+// ÓRDENES DE COMPRA — vista tipo factura
+// ══════════════════════════════════════════════════════
+function renderPurchaseOrders(destFilter='', catFilter='') {
+  const db = DB.get();
+  let results = cachedResults.filter(r => r.suggestedQty > 0);
+  if (destFilter) results = results.filter(r => r.destId === destFilter);
+  if (catFilter)  results = results.filter(r => r.category === catFilter);
+  results.sort((a, b) => (a.currentDDI ?? 999) - (b.currentDDI ?? 999));
+
+  const dests = db.destinations.filter(d => d.active);
+  const cats  = [...new Set(cachedResults.map(r => r.category).filter(Boolean))];
+  const totalUnits = results.reduce((s, r) => s + r.suggestedQty, 0);
+
+  const cards = results.map(r => {
+    const c = Engine.getDDIColor(r.currentDDI);
+    const distRows = r.distribution.map((d, i) => {
+      const dayName = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][d.arrivalDate.getDay()];
+      return `<div style="display:grid;grid-template-columns:1fr 80px 90px;gap:10px;align-items:center;
+                          padding:8px 14px;border-bottom:1px solid var(--border);font-size:12.5px">
+        <div>
+          <span style="font-weight:600">${d.supplierName}</span>
+          <span style="font-size:11px;color:var(--text3);margin-left:8px">LT ${d.leadTime}d · ${fmt(d.normalizedWeight*100,0)}% · MOQ ${d.moq}</span>
+        </div>
+        <div style="font-family:var(--font-mono);font-weight:800;font-size:15px;color:var(--accent);text-align:right">
+          ${fmtInt(d.quantity)}
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--success)">${DateUtils.toShort(d.arrivalDate)}</div>
+          <div style="font-size:10px;color:var(--text3)">${dayName}</div>
+        </div>
+      </div>`;
+    }).join('');
+
+    const noSuppliers = r.distribution.length === 0
+      ? `<div style="padding:12px 14px;color:var(--text3);font-size:12px">Sin proveedores activos configurados para esta ruta</div>` : '';
+
+    return `<div style="border:1px solid var(--border);border-radius:var(--radius2);overflow:hidden;margin-bottom:12px">
+      <!-- Cabecera SKU -->
+      <div style="display:flex;justify-content:space-between;align-items:center;
+                  padding:10px 14px;background:var(--bg3);border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="ddi-dot" style="background:${c.color}"></div>
+          <div>
+            <span style="font-size:14px;font-weight:800">${r.skuCode}</span>
+            <span style="font-size:12px;color:var(--text3);margin-left:6px">${r.description}</span>
+            <span class="chip" style="margin-left:8px;font-size:10px">${r.destName}</span>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px">
+          <div style="text-align:right">
+            <div style="font-size:10px;color:var(--text3)">DDI actual</div>
+            <div style="font-family:var(--font-mono);font-weight:700;color:${c.color}">${fmt(r.currentDDI)}d</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:10px;color:var(--text3)">TOTAL A PEDIR</div>
+            <div style="font-family:var(--font-mono);font-size:20px;font-weight:900;color:var(--accent)">${fmtInt(r.suggestedQty)}</div>
+          </div>
+          <button class="btn btn-ghost btn-sm btn-icon" onclick="showSKUDetail('${r.skuId}','${r.destId}')" title="Ver análisis completo">⊕</button>
+        </div>
+      </div>
+      <!-- Distribución por proveedor -->
+      <div style="background:var(--bg2)">
+        <div style="display:grid;grid-template-columns:1fr 80px 90px;gap:10px;padding:6px 14px;
+                    background:var(--bg3);font-size:10px;font-weight:700;text-transform:uppercase;
+                    letter-spacing:.07em;color:var(--text3);border-bottom:1px solid var(--border2)">
+          <span>Proveedor</span><span style="text-align:right">Cantidad</span><span style="text-align:right">Entrega</span>
+        </div>
+        ${distRows}${noSuppliers}
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('content').innerHTML = `
+    <div class="section-header">
+      <div>
+        <div class="section-title">Órdenes de Compra</div>
+        <div class="section-sub">${results.length} SKUs requieren compra · ${fmtInt(totalUnits)} unidades totales</div>
+      </div>
+      <div class="section-actions">
+        <select class="filter-select" id="po-dest" onchange="renderPurchaseOrders(this.value,document.getElementById('po-cat').value)">
+          <option value="">Todos los destinos</option>
+          ${dests.map(d=>`<option value="${d.id}" ${destFilter===d.id?'selected':''}>${d.name}</option>`).join('')}
+        </select>
+        <select class="filter-select" id="po-cat" onchange="renderPurchaseOrders(document.getElementById('po-dest').value,this.value)">
+          <option value="">Todas las categorías</option>
+          ${cats.map(c=>`<option value="${c}" ${catFilter===c?'selected':''}>${c}</option>`).join('')}
+        </select>
+        <button class="btn btn-secondary btn-sm" onclick="exportResults()">↓ Exportar</button>
+      </div>
+    </div>
+    ${results.length ? cards : `<div class="empty-state"><div class="empty-icon">✓</div><div class="empty-title">Sin compras requeridas</div><div class="empty-sub">Todos los SKUs están dentro del objetivo DDI</div></div>`}`;
+}
+
+// ══════════════════════════════════════════════════════
 // VISTA POR PROVEEDOR
 // ══════════════════════════════════════════════════════
 function renderSuppliersView(){
@@ -482,54 +587,147 @@ function renderSuppliersView(){
 // ══════════════════════════════════════════════════════
 // DETALLE SKU (modal) — con proyección semanal
 // ══════════════════════════════════════════════════════
-function showSKUDetail(skuId, destId){
-  const r=cachedResults.find(r=>r.skuId===skuId&&r.destId===destId);
-  if(!r) return;
-  document.getElementById('sku-modal-title').textContent=`${r.skuCode} — ${r.destName}`;
-  const riskMsg=r.firstCriticalWeek?`<div style="background:rgba(220,38,38,.1);border:1px solid var(--danger);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:8px"><span style="font-size:16px">⚠</span><div><div style="font-weight:700;color:var(--danger)">Riesgo de quiebre: semana ${r.firstCriticalWeek.label}</div><div style="font-size:11px;color:var(--text3)">${r.firstCriticalWeek.labelFull}</div></div></div>`:r.firstRiskWeek?`<div style="background:rgba(245,158,11,.1);border:1px solid var(--warning);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:8px"><span style="font-size:16px">⚡</span><div><div style="font-weight:700;color:var(--warning)">DDI bajo: semana ${r.firstRiskWeek.label}</div><div style="font-size:11px;color:var(--text3)">${r.firstRiskWeek.labelFull}</div></div></div>`:'';
-  document.getElementById('sku-modal-body').innerHTML=`
-    ${riskMsg}
-    <div class="sku-detail-grid">
-      <div class="detail-stat"><div class="detail-stat-label">DDI Actual</div><div class="detail-stat-value" style="color:${Engine.getDDIColor(r.currentDDI).color}">${fmt(r.currentDDI)}d</div></div>
-      <div class="detail-stat"><div class="detail-stat-label">DDI Objetivo</div><div class="detail-stat-value">${r.targetDDI}d</div></div>
-      <div class="detail-stat"><div class="detail-stat-label">Inv. Disponible</div><div class="detail-stat-value">${fmtInt(r.currentInv)}</div></div>
-      
-      <div class="detail-stat"><div class="detail-stat-label">Pedidos en Camino</div><div class="detail-stat-value" style="color:var(--success)">${fmtInt(r.incomingOrders)}</div></div>
-      <div class="detail-stat"><div class="detail-stat-label">Dem. Diaria (IRD)</div><div class="detail-stat-value" style="color:var(--accent)">${fmt(r.dailyDemand,2)}</div></div><div class="detail-stat"><div class="detail-stat-label">Dem. Mensual (×30)</div><div class="detail-stat-value" style="color:var(--text3)">${fmtInt(r.dailyDemand*30)}</div></div>
-      <div class="detail-stat"><div class="detail-stat-label">Lead Time Prom.</div><div class="detail-stat-value">${fmt(r.avgLeadTime,1)}d</div></div>
-      <div class="detail-stat" style="border-color:var(--accent)"><div class="detail-stat-label" style="color:var(--accent)">Compra Sugerida</div><div class="detail-stat-value" style="color:var(--accent)">${fmtInt(r.suggestedQty)}</div></div>
-    </div>
+function showSKUDetail(skuId, destId) {
+  const r = cachedResults.find(r => r.skuId===skuId && r.destId===destId);
+  if (!r) return;
+  document.getElementById('sku-modal-title').textContent = `${r.skuCode} — ${r.destName}`;
 
-    <div class="card" style="margin-top:12px">
-      <div class="card-header"><h3>Proyección semanal de disponibilidad</h3></div>
+  // ── ALERTA DE RIESGO ──
+  const riskMsg = r.firstCriticalWeek
+    ? `<div style="background:rgba(220,38,38,.1);border:1px solid var(--danger);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:8px">
+         <span style="font-size:16px">⚠</span>
+         <div><div style="font-weight:700;color:var(--danger)">Quiebre de stock: semana ${r.firstCriticalWeek.label}</div>
+         <div style="font-size:11px;color:var(--text3)">${r.firstCriticalWeek.labelFull}</div></div>
+       </div>`
+    : r.firstRiskWeek
+    ? `<div style="background:rgba(245,158,11,.1);border:1px solid var(--warning);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:8px">
+         <span style="font-size:16px">⚡</span>
+         <div><div style="font-weight:700;color:var(--warning)">DDI bajo en semana ${r.firstRiskWeek.label}</div>
+         <div style="font-size:11px;color:var(--text3)">${r.firstRiskWeek.labelFull}</div></div>
+       </div>` : '';
+
+  // ── ORDEN DE COMPRA (sección principal) ──
+  let purchaseSection = '';
+  if (r.suggestedQty > 0) {
+    const distRows = r.distribution.map((d, idx) => {
+      const dayName = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][d.arrivalDate.getDay()];
+      return `<div style="display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;
+                          padding:10px 14px;border-bottom:1px solid var(--border);
+                          ${idx===0?'background:rgba(59,130,246,.06)':''}">
+        <div>
+          <div style="font-size:13px;font-weight:600">${d.supplierName}</div>
+          <div style="font-size:11px;color:var(--text3)">LT: ${d.leadTime}d · MOQ: ${d.moq} · ${fmt(d.normalizedWeight*100,1)}%</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:var(--font-mono);font-size:18px;font-weight:800;color:var(--accent)">${fmtInt(d.quantity)}</div>
+          <div style="font-size:10px;color:var(--text3)">unidades</div>
+        </div>
+        <div style="text-align:right;min-width:80px">
+          <div style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--success)">${DateUtils.toShort(d.arrivalDate)}</div>
+          <div style="font-size:10px;color:var(--text3)">${dayName}</div>
+        </div>
+      </div>`;
+    }).join('');
+
+    purchaseSection = `
+      <div style="border:2px solid var(--accent);border-radius:var(--radius2);overflow:hidden;margin-bottom:16px">
+        <!-- Header de la orden -->
+        <div style="background:var(--accent);padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div style="font-size:14px;font-weight:800;color:white">🛒 ORDEN DE COMPRA</div>
+            <div style="font-size:11px;color:rgba(255,255,255,.75)">${r.skuCode} — ${r.destName}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-family:var(--font-mono);font-size:28px;font-weight:900;color:white;line-height:1">${fmtInt(r.suggestedQty)}</div>
+            <div style="font-size:11px;color:rgba(255,255,255,.75)">unidades totales</div>
+          </div>
+        </div>
+        <!-- Distribución por proveedor con fechas -->
+        <div style="background:var(--bg2)">
+          <div style="display:grid;grid-template-columns:1fr auto auto;gap:12px;padding:7px 14px;
+                      background:var(--bg3);font-size:10px;font-weight:700;text-transform:uppercase;
+                      letter-spacing:.07em;color:var(--text3);border-bottom:1px solid var(--border)">
+            <span>Proveedor</span><span style="text-align:right">Cantidad</span><span style="text-align:right">Entrega</span>
+          </div>
+          ${distRows}
+        </div>
+        <!-- Totales -->
+        <div style="padding:10px 16px;background:var(--bg3);display:flex;justify-content:space-between;
+                    border-top:1px solid var(--border);font-size:12px;color:var(--text3)">
+          <span>DDI proyectado tras recepción</span>
+          <span style="font-family:var(--font-mono);font-weight:700;color:${Engine.getDDIColor(r.projectedDDI).color}">
+            ${r.projectedDDI !== null ? fmt(r.projectedDDI) + 'd' : '—'}
+          </span>
+        </div>
+      </div>`;
+  } else {
+    purchaseSection = `
+      <div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);border-radius:var(--radius);
+                  padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px">
+        <span style="font-size:20px">✓</span>
+        <div>
+          <div style="font-weight:700;color:var(--success)">Sin compra requerida</div>
+          <div style="font-size:11px;color:var(--text3)">Inventario proyectado cubre el objetivo DDI</div>
+        </div>
+      </div>`;
+  }
+
+  // ── INDICADORES DDI ──
+  const statsHtml = `
+    <div class="sku-detail-grid" style="margin-bottom:14px">
+      <div class="detail-stat"><div class="detail-stat-label">DDI Actual</div>
+        <div class="detail-stat-value" style="color:${Engine.getDDIColor(r.currentDDI).color}">${fmt(r.currentDDI)}d</div></div>
+      <div class="detail-stat"><div class="detail-stat-label">DDI Objetivo</div>
+        <div class="detail-stat-value">${r.targetDDI}d</div></div>
+      <div class="detail-stat"><div class="detail-stat-label">Inventario</div>
+        <div class="detail-stat-value">${fmtInt(r.currentInv)}</div></div>
+      <div class="detail-stat"><div class="detail-stat-label">Dem. Diaria (IRDR)</div>
+        <div class="detail-stat-value" style="color:var(--accent)">${fmt(r.irdr,2)}</div></div>
+      <div class="detail-stat"><div class="detail-stat-label">Ventas rest. sem.</div>
+        <div class="detail-stat-value">${fmtInt(r.ventas)}</div></div>
+      <div class="detail-stat"><div class="detail-stat-label">Pedidos en Camino</div>
+        <div class="detail-stat-value" style="color:var(--success)">${fmtInt(r.incomingOrders)}</div></div>
+      <div class="detail-stat"><div class="detail-stat-label">Inv. Proyectado</div>
+        <div class="detail-stat-value" style="color:${r.projectedInv<0?'var(--danger)':'var(--text)'}">${fmtInt(r.projectedInv)}</div></div>
+      <div class="detail-stat"><div class="detail-stat-label">Inv. Objetivo</div>
+        <div class="detail-stat-value">${fmtInt(r.targetInv)}</div></div>
+    </div>`;
+
+  // ── PROYECCIÓN SEMANAL ──
+  const projHtml = `
+    <div class="card" style="margin-top:4px">
+      <div class="card-header"><h3>Proyección semanal (10 semanas)</h3></div>
       <div style="overflow-x:auto">
         <table class="heatmap-table">
           <thead><tr>
-            <th style="text-align:left;padding:8px 12px">Semana</th>
-            <th>Inv. Final</th><th>DDI</th><th>Dem. sem.</th><th>Pedidos</th><th>Estado</th>
+            <th style="text-align:left;padding:7px 10px">Semana</th>
+            <th>Inv.</th><th>DDI</th><th>Dem.sem</th><th>Pedidos</th><th>Estado</th>
           </tr></thead>
           <tbody>
-            ${r.weeklyProjection.map(w=>{
-              const c=Engine.getDDIColor(w.projDDI);
-              const ordHtml=w.ordersThisWeek.length?`<span style="color:var(--success);font-weight:700">+${fmtInt(w.ordersThisWeek.reduce((s,o)=>s+o.qty,0))}</span>`:'—';
+            ${r.weeklyProjection.map(w => {
+              const c = Engine.getDDIColor(w.projDDI);
+              const ordStr = w.ordersQty > 0
+                ? `<span style="color:var(--success);font-weight:700">+${fmtInt(w.ordersQty)}</span>` : '—';
               return `<tr>
-                <td style="padding:8px 12px;font-family:var(--font-mono);font-size:11px">${w.labelFull}</td>
-                <td><div class="heat-cell" style="background:${c.color};color:white;min-width:60px;height:36px"><div class="hv" style="font-size:12px">${fmtInt(w.projInv)}</div></div></td>
-                <td style="padding:6px 12px"><span style="font-family:var(--font-mono);font-weight:700;color:${c.color}">${w.projDDI!==null?fmt(w.projDDI)+'d':'—'}</span></td>
-                <td style="padding:6px 12px;font-family:var(--font-mono);color:var(--text3)">${fmtInt(w.weeklyDemand)}</td>
-                <td style="padding:6px 12px">${ordHtml}</td>
-                <td style="padding:6px 12px"><span class="chip" style="color:${c.color};border-color:${c.color}40;background:${c.color}18">${c.label}</span></td>
+                <td style="padding:6px 10px;font-family:var(--font-mono);font-size:11px">${w.labelFull}</td>
+                <td><div class="heat-cell" style="background:${c.color};color:white;min-width:56px;height:32px">
+                  <div style="font-family:var(--font-mono);font-size:12px;font-weight:700">${fmtInt(w.projInv)}</div>
+                </div></td>
+                <td style="padding:6px 10px;font-family:var(--font-mono);font-weight:700;color:${c.color}">${w.projDDI!==null?fmt(w.projDDI)+'d':'—'}</td>
+                <td style="padding:6px 10px;font-family:var(--font-mono);color:var(--text3)">${fmtInt(w.weeklyDemand)}</td>
+                <td style="padding:6px 10px">${ordStr}</td>
+                <td style="padding:6px 10px"><span class="chip" style="color:${c.color};border-color:${c.color}40;background:${c.color}18">${c.label}</span></td>
               </tr>`;
             }).join('')}
           </tbody>
         </table>
       </div>
-    </div>
+    </div>`;
 
-    ${r.distribution.length?`<div class="card" style="margin-top:12px"><div class="card-header"><h3>Distribución de compra por proveedor</h3></div><div class="card-body"><div class="supplier-dist">${r.distribution.map(d=>`<div class="supplier-bar-row"><div class="supplier-name">${d.supplierName}</div><div class="supplier-bar-wrap"><div class="supplier-bar-fill" style="width:${d.normalizedWeight*100}%">${d.normalizedWeight>0.15?fmt(d.normalizedWeight*100,0)+'%':''}</div></div><div style="font-size:11px;color:var(--text3);width:50px;text-align:right">${d.leadTime}d</div><div class="supplier-qty">${fmtInt(d.quantity)}</div></div>`).join('')}</div></div></div>`:''}
-  `;
-  document.getElementById('sku-modal').style.display='flex';
+  document.getElementById('sku-modal-body').innerHTML = riskMsg + purchaseSection + statsHtml + projHtml;
+  document.getElementById('sku-modal').style.display = 'flex';
 }
+
 
 // ══════════════════════════════════════════════════════
 // ADMIN PEDIDOS EN CAMINO
@@ -651,20 +849,81 @@ function openMatrixForm(e=null){ const db=DB.get(); document.getElementById('for
 function deleteMatrixEntry(skuId,supplierId,destId){ if(!confirm('¿Eliminar?')) return; Admin.deleteMatrixEntry(skuId,supplierId,destId); recalcAll(false); renderAdminMatrix(); toast('Eliminado','info'); }
 
 function renderAdminInventory(sf='', df='') {
-  const db = DB.get();
+  const db     = DB.get();
+  const today  = DateUtils.today();
+  const weeks  = DateUtils.getWeeks(10);
+  const months = DateUtils.getMonthsCovered(weeks); // meses cubiertos por proyección
+
   let items = [...db.inventory];
   if (sf) items = items.filter(i => i.skuId === sf);
   if (df) items = items.filter(i => i.destId === df);
+
+  // Cabeceras de meses (abreviadas)
+  const monthHeaders = months.map(m =>
+    `<th style="min-width:62px;text-align:center;white-space:nowrap">
+       <div style="font-size:10px;font-weight:700;color:var(--accent)">${m.name.slice(0,3)}</div>
+       <div style="font-size:9px;color:var(--text3)">${m.year}</div>
+     </th>`
+  ).join('');
+
+  // Filas de la tabla
+  const rows = items.length ? items.map(inv => {
+    const sku   = db.skus.find(s => s.id === inv.skuId);
+    const dest  = db.destinations.find(d => d.id === inv.destId);
+
+    // Celdas de IRD teórico: una por mes
+    const monthCells = months.map(m => {
+      const entry = db.monthlyIrds.find(x =>
+        x.skuId === inv.skuId && x.destId === inv.destId &&
+        x.year === m.year && x.month === m.month
+      );
+      const val      = entry !== undefined ? entry.ird : '';
+      const hasVal   = entry !== undefined;
+      const placeholder = fmt(inv.ird, 1);
+      return `<td style="padding:3px 4px;text-align:center">
+        <input type="number" step="0.1" min="0"
+          value="${val}"
+          placeholder="${placeholder}"
+          title="${m.name} ${m.year} — ${sku?.code||inv.skuId}/${dest?.name||inv.destId}"
+          style="width:56px;background:var(--bg3);border:1px solid ${hasVal?'var(--success)':'var(--border)'};
+                 border-radius:4px;padding:4px 5px;color:${hasVal?'var(--success)':'var(--text3)'};
+                 font-family:var(--font-mono);font-size:12px;text-align:center;outline:none"
+          onfocus="this.style.borderColor='var(--accent)';this.style.color='var(--text)'"
+          onblur="saveInlineMonthlyIrd('${inv.skuId}','${inv.destId}',${m.year},${m.month},this)"
+        >
+      </td>`;
+    }).join('');
+
+    return `<tr>
+      <td class="bold">${sku?.code || inv.skuId}</td>
+      <td><span class="chip">${dest?.name || inv.destId}</span></td>
+      <td style="font-family:var(--font-mono)">${fmtInt(inv.inventory)}</td>
+      <td style="font-family:var(--font-mono);color:var(--accent);font-weight:700">${fmt(inv.ird, 2)}</td>
+      <td style="font-family:var(--font-mono);color:var(--text2)">${fmtInt((inv.ird||0)*7)}</td>
+      <td style="font-family:var(--font-mono);color:var(--text3)">${fmtInt((inv.ird||0)*30)}</td>
+      ${monthCells}
+      <td style="white-space:nowrap;display:flex;gap:4px">
+        <button class="btn btn-ghost btn-sm btn-icon" onclick='openInventoryForm(${JSON.stringify(inv)})' title="Editar">✎</button>
+        <button class="btn btn-danger btn-sm btn-icon" onclick="deleteInventory('${inv.skuId}','${inv.destId}')" title="Eliminar">✕</button>
+      </td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="${7+months.length}">
+    <div class="empty-state">
+      <div class="empty-icon">≡</div>
+      <div class="empty-title">Sin datos de inventario</div>
+      <div class="empty-sub">Crea filas manualmente o importa desde Excel</div>
+    </div>
+  </td></tr>`;
 
   document.getElementById('content').innerHTML = `
     <div class="section-header">
       <div>
         <div class="section-title">Inventario</div>
-        <div class="section-sub">${db.inventory.length} registros · IRD = demanda diaria real (IRDR)</div>
+        <div class="section-sub">${db.inventory.length} registros · columnas de mes = IRD teórico (vacío usa IRDR)</div>
       </div>
       <div class="section-actions">
         <button class="btn btn-primary btn-sm" onclick="openInventoryForm()">+ Nueva Fila</button>
-        <button class="btn btn-danger btn-sm" onclick="clearAll('inventory')" title="Borrar todo">✕ Borrar todo</button>
+        <button class="btn btn-danger btn-sm" onclick="clearAll('inventory')">✕ Borrar todo</button>
       </div>
     </div>
     <div class="toolbar">
@@ -679,51 +938,30 @@ function renderAdminInventory(sf='', df='') {
         ${db.destinations.map(d => `<option value="${d.id}" ${df===d.id?'selected':''}>${d.name}</option>`).join('')}
       </select>
     </div>
-    <div class="table-wrap">
-      <table>
+    <div style="overflow-x:auto;border-radius:var(--radius2);border:1px solid var(--border)">
+      <table style="border-collapse:collapse;font-size:12.5px;width:100%">
         <thead>
           <tr>
-            <th>SKU</th><th>Destino</th>
-            <th>Inventario</th>
-            <th>IRDR (u/día) <span style="color:var(--danger)">*</span></th>
-            <th>Dem/sem (×7)</th>
-            <th>Dem/mes (×30)</th>
-            <th>IRDs Teóricos</th>
-            <th></th>
+            <th style="background:var(--bg3);padding:9px 11px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border);white-space:nowrap">SKU</th>
+            <th style="background:var(--bg3);padding:9px 11px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border);white-space:nowrap">Destino</th>
+            <th style="background:var(--bg3);padding:9px 11px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border);white-space:nowrap">Inventario</th>
+            <th style="background:var(--bg3);padding:9px 11px;text-align:center;font-size:10px;font-weight:700;color:var(--accent);border-bottom:2px solid var(--accent);white-space:nowrap">
+              IRDR<br><span style="font-size:9px;font-weight:400;color:var(--text3)">u/día *</span>
+            </th>
+            <th style="background:var(--bg3);padding:9px 11px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border);white-space:nowrap">×7</th>
+            <th style="background:var(--bg3);padding:9px 11px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border);white-space:nowrap">×30</th>
+            ${months.map(m=>`<th style="background:var(--bg3);padding:6px 4px;text-align:center;font-size:10px;font-weight:700;color:var(--text3);border-bottom:1px solid var(--border);border-left:1px solid var(--border2)">
+              <div style="color:var(--accent)">${m.name.slice(0,3)}</div>
+              <div style="font-size:9px;font-weight:400">${m.year}</div>
+            </th>`).join('')}
+            <th style="background:var(--bg3);padding:9px 11px;border-bottom:1px solid var(--border)"></th>
           </tr>
         </thead>
-        <tbody>
-          ${items.length ? items.map(inv => {
-            const sku   = db.skus.find(s => s.id === inv.skuId);
-            const dest  = db.destinations.find(d => d.id === inv.destId);
-            const mIrds = db.monthlyIrds.filter(m => m.skuId === inv.skuId && m.destId === inv.destId);
-            const mBadge = mIrds.length > 0
-              ? `<span class="chip chip-success" style="cursor:pointer" onclick="openMonthlyIrdsModal('${inv.skuId}','${inv.destId}')">${mIrds.length} mes${mIrds.length>1?'es':''} ✎</span>`
-              : `<button class="btn btn-secondary btn-sm" onclick="openMonthlyIrdsModal('${inv.skuId}','${inv.destId}')">+ Añadir IRDs</button>`;
-            return `<tr>
-              <td class="bold">${sku?.code || inv.skuId}</td>
-              <td><span class="chip">${dest?.name || inv.destId}</span></td>
-              <td style="font-family:var(--font-mono)">${fmtInt(inv.inventory)}</td>
-              <td style="font-family:var(--font-mono);color:var(--accent);font-weight:700">${fmt(inv.ird, 2)}</td>
-              <td style="font-family:var(--font-mono);color:var(--text2)">${fmtInt((inv.ird||0)*7)}</td>
-              <td style="font-family:var(--font-mono);color:var(--text3)">${fmtInt((inv.ird||0)*30)}</td>
-              <td>${mBadge}</td>
-              <td style="display:flex;gap:4px">
-                <button class="btn btn-ghost btn-sm btn-icon" onclick='openInventoryForm(${JSON.stringify(inv)})' title="Editar">✎</button>
-                <button class="btn btn-danger btn-sm btn-icon" onclick="deleteInventory('${inv.skuId}','${inv.destId}')" title="Eliminar">✕</button>
-              </td>
-            </tr>`;
-          }).join('') : `<tr><td colspan="8"><div class="empty-state">
-            <div class="empty-icon">≡</div>
-            <div class="empty-title">Sin datos de inventario</div>
-            <div class="empty-sub">Crea filas manualmente o importa desde Excel</div>
-          </div></td></tr>`}
-        </tbody>
+        <tbody>${rows}</tbody>
       </table>
     </div>
-    <div style="margin-top:10px;font-size:11px;color:var(--text3)">
-      💡 <strong>IRDs Teóricos</strong>: haz clic en "Añadir IRDs" para definir demanda variable por mes.
-      Se usan en el Heatmap y los cálculos de proyección en lugar de IRDR para ese mes.
+    <div style="margin-top:8px;font-size:11px;color:var(--text3)">
+      💡 Columnas de mes: ingresa el IRD teórico para ese mes. <span style="color:var(--success)">Verde</span> = valor activo. Vacío = usa IRDR. Los cambios se aplican al perder foco (Tab o clic fuera).
     </div>`;
 }
 
@@ -879,6 +1117,32 @@ function clearMonthlyIrdsForSku(skuId, destId) {
   toast('IRDs teóricos eliminados', 'info');
 }
 
+
+// Guarda un IRD teórico desde la celda inline de la tabla de inventario
+function saveInlineMonthlyIrd(skuId, destId, year, month, input) {
+  const val = input.value.trim();
+  if (val === '') {
+    // Borrar entrada si se deja vacío
+    const db = DB.get();
+    db.monthlyIrds = db.monthlyIrds.filter(m =>
+      !(m.skuId===skuId && m.destId===destId && m.year===year && m.month===month)
+    );
+    DB.save();
+    input.style.borderColor = 'var(--border)';
+    input.style.color       = 'var(--text3)';
+  } else {
+    const ird = parseFloat(val);
+    if (isNaN(ird) || ird < 0) {
+      input.style.borderColor = 'var(--danger)';
+      return;
+    }
+    Admin.saveMonthlyIrd({ skuId, destId, year, month, ird });
+    input.style.borderColor = 'var(--success)';
+    input.style.color       = 'var(--success)';
+  }
+  recalcAll(false);
+}
+
 // ══════════════════════════════════════════════════════
 // BORRAR TODO — funciones por entidad
 // ══════════════════════════════════════════════════════
@@ -917,7 +1181,14 @@ function clearAll(entity) {
       label: 'registros de Inventario',
       count: () => db.inventory.length,
       detail: () => db.inventory.length + ' registros',
-      action: () => { db.inventory=[]; },
+      action: () => { db.inventory=[]; db.monthlyIrds=[]; },
+      reload: renderAdminInventory
+    },
+    monthlyIrds: {
+      label: 'IRDs Teóricos',
+      count: () => db.monthlyIrds.length,
+      detail: () => db.monthlyIrds.length + ' entradas mensuales',
+      action: () => { db.monthlyIrds=[]; },
       reload: renderAdminInventory
     },
     monthlyIrds: {

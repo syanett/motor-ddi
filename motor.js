@@ -72,26 +72,51 @@ const DB = {
   },
 
   load() {
-    // Migrar desde claves antiguas (preserva datos del usuario)
-    for (const old of OLD_KEYS) {
-      const raw = localStorage.getItem(old);
-      if (raw) {
+    // ── BÚSQUEDA UNIVERSAL: escanea TODOS los keys del localStorage ──
+    // No depende de una lista fija; funciona aunque cambie el nombre en futuras versiones
+    let foundRaw  = null;
+    let foundKey  = null;
+
+    // 1. Primero intentar la clave estable actual
+    foundRaw = localStorage.getItem(DB_KEY);
+    if (foundRaw) foundKey = DB_KEY;
+
+    // 2. Si no, escanear todas las claves buscando datos de la app
+    if (!foundRaw) {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key) continue;
+        // Cualquier clave que haya sido nuestra
+        if (key === DB_KEY ||
+            key.startsWith('replenishment_db_') ||
+            key.startsWith('asistente_compra')) {
+          const raw = localStorage.getItem(key);
+          if (!raw) continue;
+          try {
+            const parsed = JSON.parse(raw);
+            // Solo aceptar si tiene estructura de nuestra app
+            if (Array.isArray(parsed.skus) || Array.isArray(parsed.inventory)) {
+              foundRaw = raw;
+              foundKey = key;
+              break;
+            }
+          } catch(e) {}
+        }
+      }
+      // Migrar a clave estable para el futuro
+      if (foundRaw && foundKey && foundKey !== DB_KEY) {
         try {
-          localStorage.setItem(DB_KEY, raw);
-          localStorage.removeItem(old);
-          console.log(`Migrado desde ${old}`);
+          localStorage.setItem(DB_KEY, foundRaw);
+          localStorage.removeItem(foundKey);
         } catch(e) {}
-        break;
       }
     }
+
     try {
-      const raw = localStorage.getItem(DB_KEY);
-      this._data = raw ? JSON.parse(raw) : this._defaultData();
-      // Añadir campos nuevos si faltan (migración de versiones anteriores)
+      this._data = foundRaw ? JSON.parse(foundRaw) : this._defaultData();
       if (!this._data.orders)      this._data.orders      = [];
       if (!this._data.monthlyIrds) this._data.monthlyIrds = [];
-      // Eliminar settings (modo dual eliminado)
-      delete this._data.settings;
+      delete this._data.settings; // modo dual eliminado
     } catch(e) {
       console.error('Error cargando DB:', e);
       this._data = this._defaultData();
@@ -249,21 +274,46 @@ const Engine = {
     return valid.map(m => ({ ...m, normalizedWeight: total ? (m.weight || 0) / total : 1 / valid.length }));
   },
 
+  /**
+   * Distribuye la compra entre proveedores con fechas de entrega escalonadas.
+   * - Ordena proveedores por lead time ascendente
+   * - Asigna arrivalDate = hoy + leadTime por proveedor
+   * - Resuelve conflictos: ningún proveedor entrega el mismo día que otro del mismo SKU
+   *   Si dos coinciden, el segundo se desplaza +1 día (y así sucesivamente)
+   */
   calcSupplierDistribution(skuId, destId, qtyNeeded) {
     if (qtyNeeded <= 0) return [];
     const suppliers = this.normalizeSupplierWeights(skuId, destId);
     if (!suppliers.length) return [];
-    const db = DB.get();
-    return suppliers.map(e => {
-      const sup = db.suppliers.find(s => s.id === e.supplierId);
-      const moq = e.moq || 1;
-      return {
-        supplierId: e.supplierId, supplierName: sup?.name || e.supplierId,
-        leadTime: e.leadTime || 0, weight: e.weight || 0,
-        normalizedWeight: e.normalizedWeight, moq,
-        quantity: Math.ceil(qtyNeeded * e.normalizedWeight / moq) * moq
-      };
-    });
+    const db    = DB.get();
+    const today = DateUtils.today();
+
+    // Paso 1: calcular cantidades y fecha de llegada natural
+    let entries = suppliers
+      .map(e => {
+        const sup = db.suppliers.find(s => s.id === e.supplierId);
+        const moq = e.moq || 1;
+        return {
+          supplierId:       e.supplierId,
+          supplierName:     sup?.name || e.supplierId,
+          leadTime:         e.leadTime || 0,
+          weight:           e.weight || 0,
+          normalizedWeight: e.normalizedWeight,
+          moq,
+          quantity:    Math.ceil(qtyNeeded * e.normalizedWeight / moq) * moq,
+          arrivalDate: DateUtils.addDays(today, e.leadTime || 0)
+        };
+      })
+      .sort((a, b) => a.leadTime - b.leadTime || a.supplierName.localeCompare(b.supplierName));
+
+    // Paso 2: resolver conflictos de fecha — cada proveedor en día distinto
+    for (let i = 1; i < entries.length; i++) {
+      if (entries[i].arrivalDate <= entries[i - 1].arrivalDate) {
+        entries[i].arrivalDate = DateUtils.addDays(entries[i - 1].arrivalDate, 1);
+      }
+    }
+
+    return entries;
   },
 
   /**
