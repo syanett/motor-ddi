@@ -275,13 +275,46 @@ const Engine = {
   },
 
   /**
+   * Calcula la fecha exacta de quiebre de stock (inventario ≤ 0),
+   * iterando día a día y contando los pedidos en camino que llegan.
+   * Retorna Date o null si no hay quiebre en 2 años.
+   */
+  calcStockOutDate(skuId, destId) {
+    const db  = DB.get();
+    const inv = db.inventory.find(i => i.skuId === skuId && i.destId === destId) || {};
+    const irdr = inv.ird || 0;
+    if (irdr <= 0) return null;
+
+    const today  = DateUtils.today();
+    const orders = db.orders
+      .filter(o => o.skuId === skuId && o.destId === destId)
+      .filter(o => { const a = DateUtils.parse(o.arrivalDate); return a && a >= today; });
+
+    let runningInv = inv.inventory || 0;
+    let date = new Date(today);
+
+    for (let day = 0; day < 730; day++) {
+      // Recibir pedidos que llegan hoy
+      const iso = DateUtils.toISO(date);
+      runningInv += orders
+        .filter(o => DateUtils.toISO(DateUtils.parse(o.arrivalDate)) === iso)
+        .reduce((s, o) => s + (o.qty || 0), 0);
+      // Consumir demanda diaria
+      runningInv -= irdr;
+      if (runningInv <= 0) return new Date(date);
+      date = DateUtils.addDays(date, 1);
+    }
+    return null;
+  },
+
+  /**
    * Distribuye la compra entre proveedores con fechas de entrega escalonadas.
    * - Ordena proveedores por lead time ascendente
    * - Asigna arrivalDate = hoy + leadTime por proveedor
    * - Resuelve conflictos: ningún proveedor entrega el mismo día que otro del mismo SKU
    *   Si dos coinciden, el segundo se desplaza +1 día (y así sucesivamente)
    */
-  calcSupplierDistribution(skuId, destId, qtyNeeded) {
+  calcSupplierDistribution(skuId, destId, qtyNeeded, stockOutDate = null) {
     if (qtyNeeded <= 0) return [];
     const suppliers = this.normalizeSupplierWeights(skuId, destId);
     if (!suppliers.length) return [];
@@ -301,7 +334,9 @@ const Engine = {
           normalizedWeight: e.normalizedWeight,
           moq,
           quantity:    Math.ceil(qtyNeeded * e.normalizedWeight / moq) * moq,
-          arrivalDate: DateUtils.addDays(today, e.leadTime || 0)
+          arrivalDate: DateUtils.addDays(today, e.leadTime || 0),
+          // Pedir antes de = fecha de quiebre − lead time
+          orderByDate: stockOutDate ? DateUtils.addDays(stockOutDate, -(e.leadTime || 0)) : null
         };
       })
       .sort((a, b) => a.leadTime - b.leadTime || a.supplierName.localeCompare(b.supplierName));
@@ -404,7 +439,8 @@ const Engine = {
     const targetInv = (wdNxt.total / 7) * targetDDI;
 
     const compraBruta = targetInv - projectedInv;
-    const distribution = this.calcSupplierDistribution(skuId, destId, Math.max(0, compraBruta));
+    const stockOutDate = this.calcStockOutDate(skuId, destId);
+    const distribution = this.calcSupplierDistribution(skuId, destId, Math.max(0, compraBruta), stockOutDate);
     const suggestedQty = distribution.length
       ? distribution.reduce((s, d) => s + d.quantity, 0)
       : (compraBruta > 0 ? Math.ceil(compraBruta) : 0);
@@ -443,6 +479,7 @@ const Engine = {
       distribution,
       weeklyProjection, firstRiskWeek, firstCriticalWeek,
       nxtMonths,
+      stockOutDate,
       curDDSM: wdCur.ddsm, nxtDDSM: wdNxt.ddsm
     };
   },

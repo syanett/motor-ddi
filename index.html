@@ -479,6 +479,26 @@ function renderReplenishment(query='',destFilter='',catFilter=''){
     </table></div>`;
 }
 
+
+// Devuelve HTML para la fecha "pedir antes de" con color por urgencia
+function orderByHtml(orderByDate) {
+  if (!orderByDate) return '<span style="font-size:11px;color:var(--text3)">sin urgencia</span>';
+  const today = DateUtils.today();
+  const days  = DateUtils.diffDays(today, orderByDate);
+  let color, label, sub;
+  if (days < 0) {
+    color = 'var(--danger)'; label = '¡Pedir YA!'; sub = `venció hace ${Math.abs(days)}d`;
+  } else if (days === 0) {
+    color = 'var(--danger)'; label = 'HOY'; sub = 'último día';
+  } else if (days <= 7) {
+    color = 'var(--warning)'; label = DateUtils.toShort(orderByDate); sub = `en ${days}d`;
+  } else {
+    color = 'var(--success)'; label = DateUtils.toShort(orderByDate); sub = `en ${days}d`;
+  }
+  return `<div style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:${color}">${label}</div>
+          <div style="font-size:10px;color:var(--text3)">${sub}</div>`;
+}
+
 // ══════════════════════════════════════════════════════
 // ÓRDENES DE COMPRA — vista tipo factura
 // ══════════════════════════════════════════════════════
@@ -497,7 +517,7 @@ function renderPurchaseOrders(destFilter='', catFilter='') {
     const c = Engine.getDDIColor(r.currentDDI);
     const distRows = r.distribution.map((d, i) => {
       const dayName = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][d.arrivalDate.getDay()];
-      return `<div style="display:grid;grid-template-columns:1fr 80px 90px;gap:10px;align-items:center;
+      return `<div style="display:grid;grid-template-columns:1fr 70px 95px 95px;gap:10px;align-items:center;
                           padding:8px 14px;border-bottom:1px solid var(--border);font-size:12.5px">
         <div>
           <span style="font-weight:600">${d.supplierName}</span>
@@ -506,9 +526,10 @@ function renderPurchaseOrders(destFilter='', catFilter='') {
         <div style="font-family:var(--font-mono);font-weight:800;font-size:15px;color:var(--accent);text-align:right">
           ${fmtInt(d.quantity)}
         </div>
+        <div style="text-align:right">${orderByHtml(d.orderByDate)}</div>
         <div style="text-align:right">
-          <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--success)">${DateUtils.toShort(d.arrivalDate)}</div>
-          <div style="font-size:10px;color:var(--text3)">${dayName}</div>
+          <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--text2)">${DateUtils.toShort(d.arrivalDate)}</div>
+          <div style="font-size:10px;color:var(--text3)">${dayName} (hoy+LT)</div>
         </div>
       </div>`;
     }).join('');
@@ -534,6 +555,10 @@ function renderPurchaseOrders(destFilter='', catFilter='') {
             <div style="font-family:var(--font-mono);font-weight:700;color:${c.color}">${fmt(r.currentDDI)}d</div>
           </div>
           <div style="text-align:right">
+            <div style="font-size:10px;color:var(--text3)">Quiebre est.</div>
+            <div style="font-family:var(--font-mono);font-weight:700;color:${r.stockOutDate?'var(--danger)':'var(--text3)'}">${r.stockOutDate?DateUtils.toShort(r.stockOutDate):'—'}</div>
+          </div>
+          <div style="text-align:right">
             <div style="font-size:10px;color:var(--text3)">TOTAL A PEDIR</div>
             <div style="font-family:var(--font-mono);font-size:20px;font-weight:900;color:var(--accent)">${fmtInt(r.suggestedQty)}</div>
           </div>
@@ -542,10 +567,10 @@ function renderPurchaseOrders(destFilter='', catFilter='') {
       </div>
       <!-- Distribución por proveedor -->
       <div style="background:var(--bg2)">
-        <div style="display:grid;grid-template-columns:1fr 80px 90px;gap:10px;padding:6px 14px;
+        <div style="display:grid;grid-template-columns:1fr 70px 95px 95px;gap:10px;padding:6px 14px;
                     background:var(--bg3);font-size:10px;font-weight:700;text-transform:uppercase;
                     letter-spacing:.07em;color:var(--text3);border-bottom:1px solid var(--border2)">
-          <span>Proveedor</span><span style="text-align:right">Cantidad</span><span style="text-align:right">Entrega</span>
+          <span>Proveedor</span><span style="text-align:right">Cant.</span><span style="text-align:right">Pedir antes</span><span style="text-align:right">Entrega est.</span>
         </div>
         ${distRows}${noSuppliers}
       </div>
@@ -611,7 +636,7 @@ function showSKUDetail(skuId, destId) {
   if (r.suggestedQty > 0) {
     const distRows = r.distribution.map((d, idx) => {
       const dayName = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][d.arrivalDate.getDay()];
-      return `<div style="display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;
+      return `<div style="display:grid;grid-template-columns:1fr 70px 95px 90px;gap:10px;align-items:center;
                           padding:10px 14px;border-bottom:1px solid var(--border);
                           ${idx===0?'background:rgba(59,130,246,.06)':''}">
         <div>
@@ -619,12 +644,13 @@ function showSKUDetail(skuId, destId) {
           <div style="font-size:11px;color:var(--text3)">LT: ${d.leadTime}d · MOQ: ${d.moq} · ${fmt(d.normalizedWeight*100,1)}%</div>
         </div>
         <div style="text-align:right">
-          <div style="font-family:var(--font-mono);font-size:18px;font-weight:800;color:var(--accent)">${fmtInt(d.quantity)}</div>
-          <div style="font-size:10px;color:var(--text3)">unidades</div>
+          <div style="font-family:var(--font-mono);font-size:17px;font-weight:800;color:var(--accent)">${fmtInt(d.quantity)}</div>
+          <div style="font-size:10px;color:var(--text3)">uds</div>
         </div>
-        <div style="text-align:right;min-width:80px">
-          <div style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--success)">${DateUtils.toShort(d.arrivalDate)}</div>
-          <div style="font-size:10px;color:var(--text3)">${dayName}</div>
+        <div style="text-align:right">${orderByHtml(d.orderByDate)}</div>
+        <div style="text-align:right">
+          <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--text2)">${DateUtils.toShort(d.arrivalDate)}</div>
+          <div style="font-size:10px;color:var(--text3)">${dayName} (hoy+LT)</div>
         </div>
       </div>`;
     }).join('');
@@ -640,14 +666,15 @@ function showSKUDetail(skuId, destId) {
           <div style="text-align:right">
             <div style="font-family:var(--font-mono);font-size:28px;font-weight:900;color:white;line-height:1">${fmtInt(r.suggestedQty)}</div>
             <div style="font-size:11px;color:rgba(255,255,255,.75)">unidades totales</div>
+            ${r.stockOutDate?`<div style="font-size:10px;color:rgba(255,255,255,.9);margin-top:3px">Quiebre est: ${DateUtils.toShort(r.stockOutDate)}</div>`:''}
           </div>
         </div>
         <!-- Distribución por proveedor con fechas -->
         <div style="background:var(--bg2)">
-          <div style="display:grid;grid-template-columns:1fr auto auto;gap:12px;padding:7px 14px;
+          <div style="display:grid;grid-template-columns:1fr 70px 95px 90px;gap:10px;padding:7px 14px;
                       background:var(--bg3);font-size:10px;font-weight:700;text-transform:uppercase;
                       letter-spacing:.07em;color:var(--text3);border-bottom:1px solid var(--border)">
-            <span>Proveedor</span><span style="text-align:right">Cantidad</span><span style="text-align:right">Entrega</span>
+            <span>Proveedor</span><span style="text-align:right">Cant.</span><span style="text-align:right">Pedir antes</span><span style="text-align:right">Entrega est.</span>
           </div>
           ${distRows}
         </div>
