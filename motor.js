@@ -507,7 +507,7 @@ const Importer = {
           const wb = XLSX.read(new Uint8Array(e.target.result), { type:'array', cellDates:true });
           const sheets = {};
           for (const name of wb.SheetNames)
-            sheets[name] = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval:null, raw:false });
+            sheets[name] = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval:null, raw:false, dateNF:'yyyy-mm-dd' });
           resolve({ sheets });
         } catch(err) { reject(new Error('Error leyendo Excel: ' + err.message)); }
       };
@@ -587,9 +587,31 @@ const Importer = {
       if (!row['SKU'] || !row['Destino'] || !row['Fecha Llegada'] || !row['Cantidad']) {
         errors.push(`Fila ${i+2}: faltan campos`); return;
       }
-      let ds = String(row['Fecha Llegada']).trim();
-      if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(ds)) {
-        const [d,m,y] = ds.split('/'); ds = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+      // Parseo robusto — SheetJS puede retornar Date, YYYY-MM-DD, M/D/YY, DD/MM/YYYY
+      const rawDate = row['Fecha Llegada'];
+      let ds = '';
+      if (rawDate instanceof Date && !isNaN(rawDate)) {
+        // Objeto Date de SheetJS con raw:true
+        ds = `${rawDate.getFullYear()}-${String(rawDate.getMonth()+1).padStart(2,'0')}-${String(rawDate.getDate()).padStart(2,'0')}`;
+      } else {
+        ds = String(rawDate || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(ds)) {
+          // Formatos con barra: M/D/YY, M/D/YYYY, DD/MM/YYYY
+          const slashMatch = ds.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+          if (slashMatch) {
+            let [, a, b, y] = slashMatch.map(Number);
+            if (y < 100) y += 2000;
+            // Determinar cuál es día y cuál mes
+            let month, day;
+            if (b > 12)      { month = a; day = b; }   // M/D/... (US, SheetJS default)
+            else if (a > 12) { month = b; day = a; }   // DD/MM/... (EU/CO)
+            else             { month = a; day = b; }   // Ambiguo → asumir M/D (SheetJS default)
+            ds = `${y}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+          }
+        }
+      }
+      if (!ds || ds.length < 10) {
+        errors.push(`Fila ${i+2}: Fecha Llegada inválida ("${rawDate}")`); return;
       }
       processed.push({ id: `ord_${Date.now()}_${i}`,
         skuId:     String(row['SKU']).trim().toLowerCase().replace(/\s+/g,'_'),

@@ -235,7 +235,7 @@ function ddiRowClass(ddi){ if(ddi===null) return ''; if(ddi<0) return 'ddi-criti
 
 function recalcAll(notify=true){ cachedResults=Engine.calcAll(); updateFooter(); if(notify) toast(`${cachedResults.length} filas recalculadas`,'success'); renderCurrentView(); }
 function renderCurrentView(){ navigateTo(currentView, false); }
-function updateFooter(){ const db=DB.get(); const el=document.getElementById('sidebar-footer'); if(!el) return; const last=db.meta.lastImport?new Date(db.meta.lastImport).toLocaleDateString('es-CO'):'Sin importar'; el.textContent=`${db.skus.length} SKUs · ${db.orders.length} pedidos · ${last}`; }
+function updateFooter(){ const db=DB.get(); const el=document.getElementById('sidebar-footer'); if(!el) return; const last=db.meta.lastImport?new Date(db.meta.lastImport).toLocaleDateString('es-CO'):'Sin importar'; el.textContent=`${db.skus.length} SKUs · ${db.orders.length} totales · ${db.orders.filter(o=>{const a=DateUtils.parse(o.arrivalDate);return a&&a>=today;}).length} pendientes · ${last}`; }
 
 function navigateTo(view, updateActive=true){
   currentView=view;
@@ -762,7 +762,8 @@ function showSKUDetail(skuId, destId) {
 function renderAdminOrders(skuFilter='', destFilter=''){
   const db=DB.get();
   const today=DateUtils.today();
-  let orders=[...db.orders].filter(o=>{ const a=DateUtils.parse(o.arrivalDate); return a&&a>=today; }).sort((a,b)=>new Date(a.arrivalDate)-new Date(b.arrivalDate));
+  // Mostrar todos los pedidos, pasados y futuros
+  let orders=[...db.orders].sort((a,b)=>new Date(a.arrivalDate)-new Date(b.arrivalDate));
   if(skuFilter) orders=orders.filter(o=>o.skuId===skuFilter);
   if(destFilter) orders=orders.filter(o=>o.destId===destFilter);
 
