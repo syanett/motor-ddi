@@ -516,35 +516,30 @@ const Importer = {
     });
   },
   processInventory(rows) {
-    const errors = [], processed = [];
+    const errors = [], processed = [], monthlyIrds = [];
+    const today = DateUtils.today();
     rows.forEach((row, i) => {
       if (!row['SKU'] || !row['Destino']) { errors.push(`Fila ${i+2}: SKU y Destino requeridos`); return; }
-      const ird = parseFloat(row['IRD'] || row['IRD (Dem. Diaria u/dia)']);
-      if (isNaN(ird) || ird < 0) { errors.push(`Fila ${i+2}: IRD debe ser número ≥ 0`); return; }
-      processed.push({
-        skuId:     String(row['SKU']).trim().toLowerCase().replace(/\s+/g,'_'),
-        destId:    String(row['Destino']).trim().toLowerCase().replace(/\s+/g,'_'),
-        inventory: parseFloat(row['Inventario']) || 0,
-        ird
-      });
-    });
-    return { processed, errors };
-  },
-  processMonthlyIrds(rows) {
-    const errors = [], processed = [];
-    rows.forEach((row, i) => {
-      if (!row['SKU'] || !row['Destino'] || !row['Año'] || !row['Mes'] || row['IRD_Teorico'] === null) {
-        errors.push(`Fila ${i+2}: SKU, Destino, Año, Mes, IRD_Teorico requeridos`); return;
+      // IRD Real (acepta varios encabezados por compatibilidad)
+      const ird = parseFloat(row['IRD Real'] || row['IRD'] || row['IRD (Dem. Diaria u/dia)']);
+      if (isNaN(ird) || ird < 0) { errors.push(`Fila ${i+2}: IRD Real debe ser número ≥ 0`); return; }
+      const skuId  = String(row['SKU']).trim().toLowerCase().replace(/\s+/g,'_');
+      const destId = String(row['Destino']).trim().toLowerCase().replace(/\s+/g,'_');
+      processed.push({ skuId, destId, inventory: parseFloat(row['Inventario']) || 0, ird });
+
+      // Columnas de IRD teórico mensual: "IRD T mes", "IRD T mes+1", ...
+      // El offset N indica el mes (mes actual + N)
+      for (const key of Object.keys(row)) {
+        const mtch = /^IRD\s*T\s*mes\s*(?:\+\s*(\d+))?/i.exec(key);
+        if (!mtch) continue;
+        const offset = mtch[1] ? parseInt(mtch[1]) : 0;
+        const val = parseFloat(row[key]);
+        if (isNaN(val) || val < 0) continue; // vacío = usa IRD real
+        const d = new Date(today.getFullYear(), today.getMonth() + offset, 1);
+        monthlyIrds.push({ skuId, destId, year: d.getFullYear(), month: d.getMonth() + 1, ird: val });
       }
-      const ird = parseFloat(row['IRD_Teorico']);
-      if (isNaN(ird) || ird < 0) { errors.push(`Fila ${i+2}: IRD_Teorico inválido`); return; }
-      processed.push({
-        skuId:  String(row['SKU']).trim().toLowerCase().replace(/\s+/g,'_'),
-        destId: String(row['Destino']).trim().toLowerCase().replace(/\s+/g,'_'),
-        year:   parseInt(row['Año']), month: parseInt(row['Mes']), ird
-      });
     });
-    return { processed, errors };
+    return { processed, errors, monthlyIrds };
   },
   processSKUs(rows) {
     const errors = [], processed = [];
@@ -616,13 +611,17 @@ const Importer = {
         const r = fn(sheets[name]); db[target] = r.processed;
         result.imported[name] = r.processed.length;
         result.errors.push(...r.errors.map(e => `[${name}] ${e}`));
+        // La hoja Inventario también trae los IRD teóricos mensuales
+        if (name === 'Inventario' && r.monthlyIrds) {
+          db.monthlyIrds = r.monthlyIrds;
+          if (r.monthlyIrds.length) result.imported['IRDs Teóricos'] = r.monthlyIrds.length;
+        }
       };
       run('SKUs',          this.processSKUs.bind(this),          'skus');
       run('Inventario',    this.processInventory.bind(this),     'inventory');
       run('Proveedores',   this.processSuppliers.bind(this),     'suppliers');
       run('Matriz',        this.processMatrix.bind(this),        'matrix');
       run('Pedidos',       this.processOrders.bind(this),        'orders');
-      run('IRDs_Mensuales',this.processMonthlyIrds.bind(this),  'monthlyIrds');
       db.meta.lastImport = new Date().toISOString();
       DB.save();
       result.success = result.errors.length === 0;
@@ -685,20 +684,20 @@ const Exporter = {
         ['SKU','Nombre','Descripcion','Categoria','DDI Objetivo'],
         ['TEND001','Tendidos','Tendidos doble plaza','Ropa de Cama',30]
       ]), { '!cols': col(5) }), 'SKUs');
-    if (type === 'completo' || type === 'inventario')
+    if (type === 'completo' || type === 'inventario') {
+      const t = DateUtils.today();
+      // Encabezados con los próximos 4 meses (actual + 3)
+      const monthLabels = [0,1,2,3].map(off => {
+        const d = new Date(t.getFullYear(), t.getMonth() + off, 1);
+        const tag = off === 0 ? 'mes' : `mes+${off}`;
+        return `IRD T ${tag} (${DateUtils.monthName(d.getMonth()+1).slice(0,3)})`;
+      });
+      const hdr = ['SKU','Destino','Inventario','IRD Real', ...monthLabels];
       XLSX.utils.book_append_sheet(wb, Object.assign(XLSX.utils.aoa_to_sheet([
-        ['SKU','Destino','Inventario','IRD (Dem. Diaria u/dia)'],
-        ['TEND001','Galapa',500,10],
-        ['TEND001','Bogota',200,15]
-      ]), { '!cols': col(4) }), 'Inventario');
-    if (type === 'completo' || type === 'irds_mensuales') {
-      const t = DateUtils.today(), rows = [['SKU','Destino','Año','Mes','IRD_Teorico']];
-      for (let i = 0; i < 3; i++) {
-        const d = DateUtils.addDays(t, i * 30);
-        rows.push(['TEND001','Galapa',d.getFullYear(),d.getMonth()+1,10+i]);
-        rows.push(['TEND001','Bogota',d.getFullYear(),d.getMonth()+1,15+i]);
-      }
-      XLSX.utils.book_append_sheet(wb, Object.assign(XLSX.utils.aoa_to_sheet(rows), { '!cols': col(5) }), 'IRDs_Mensuales');
+        hdr,
+        ['TEND001','Galapa',500,10,10,11,12,10],
+        ['TEND001','Bogota',200,15,15,16,14,15]
+      ]), { '!cols': col(hdr.length) }), 'Inventario');
     }
     if (type === 'completo' || type === 'proveedores')
       XLSX.utils.book_append_sheet(wb, Object.assign(XLSX.utils.aoa_to_sheet([
