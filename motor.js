@@ -117,6 +117,13 @@ const DB = {
       if (!this._data.orders)      this._data.orders      = [];
       if (!this._data.monthlyIrds) this._data.monthlyIrds = [];
       delete this._data.settings; // modo dual eliminado
+      // Normalizar fechas de pedidos ya guardados con formato incorrecto
+      this._data.orders.forEach(o => {
+        if (o.arrivalDate && !/^\d{4}-\d{2}-\d{2}$/.test(String(o.arrivalDate))) {
+          const d = DateUtils.parse(o.arrivalDate);
+          if (d) o.arrivalDate = DateUtils.toISO(d);
+        }
+      });
     } catch(e) {
       console.error('Error cargando DB:', e);
       this._data = this._defaultData();
@@ -141,8 +148,25 @@ const DateUtils = {
   today() { const d = new Date(); d.setHours(0,0,0,0); return d; },
   parse(str) {
     if (!str) return null;
-    const [y,m,d] = String(str).split('-').map(Number);
-    return new Date(y, m-1, d);
+    const s = String(str).trim();
+    let y, mo, d;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      [y, mo, d] = s.split('-').map(Number);
+    } else {
+      // Fallback: intenta parsear cualquier formato con barras
+      const sl = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+      if (sl) {
+        let [, a, b, yy] = sl.map(Number);
+        if (yy < 100) yy += 2000;
+        if (b > 12)      { mo = a; d = b; y = yy; }
+        else if (a > 12) { mo = b; d = a; y = yy; }
+        else             { mo = a; d = b; y = yy; }
+      } else {
+        return null; // formato irreconocible
+      }
+    }
+    const date = new Date(y, mo - 1, d);
+    return isNaN(date.getTime()) ? null : date; // nunca retorna Invalid Date
   },
   toISO(d) {
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
