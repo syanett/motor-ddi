@@ -241,9 +241,10 @@ function navigateTo(view, updateActive=true){
   currentView=view;
   if(updateActive) document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.view===view));
   const titles={ dashboard:['Dashboard','Vista general del inventario'], 'purchase-orders':['Órdenes de Compra','Distribución por proveedor con fechas de entrega'],
-    heatmap:['Heatmap Semanal','Disponibilidad proyectada semana a semana · Asistente de Compra'], replenishment:['Reabastecimiento','Compras sugeridas por SKU y destino'], 'suppliers-view':['Por Proveedor','Distribución de compras por proveedor'], 'admin-orders':['Pedidos en Camino','Gestión de pedidos con fecha de llegada'], 'admin-skus':['SKUs','Gestión de productos'], 'admin-destinations':['Destinos','Bodegas y centros de distribución'], 'admin-suppliers':['Proveedores','Gestión de proveedores'], 'admin-matrix':['Matriz SKU-Prov-Dest','Lead times, pesos y rutas'], 'admin-inventory':['Inventario','Niveles de inventario y demanda'], import:['Importar Excel','Carga masiva desde .xlsx'], templates:['Plantillas Excel','Descarga plantillas'] };
+    heatmap:['Heatmap Semanal','Disponibilidad proyectada semana a semana · Asistente de Compra'], replenishment:['Reabastecimiento','Compras sugeridas por SKU y destino'], 'suppliers-view':['Por Proveedor','Distribución de compras por proveedor'], 'admin-orders':['Pedidos en Camino','Gestión de pedidos con fecha de llegada'], 'admin-skus':['SKUs','Gestión de productos'], 'admin-destinations':['Destinos','Bodegas y centros de distribución'], 'admin-suppliers':['Proveedores','Gestión de proveedores'], 'admin-matrix':['Matriz SKU-Prov-Dest','Lead times, pesos y rutas'], 'admin-inventory':['Inventario','Niveles de inventario y demanda'], 'herramienta':['Actualización herramienta','Cargar datos de inventario, IRD y pedidos desde SAP'],
+    import:['Importar Excel','Carga masiva desde .xlsx'], templates:['Plantillas Excel','Descarga plantillas'] };
   const [t,s]=titles[view]||['Vista','']; document.getElementById('header-title').textContent=t; document.getElementById('header-subtitle').textContent=s;
-  const views={ dashboard:renderDashboard, heatmap:renderHeatmap, replenishment:renderReplenishment, 'purchase-orders':renderPurchaseOrders, 'suppliers-view':renderSuppliersView, 'admin-orders':renderAdminOrders, 'admin-skus':renderAdminSKUs, 'admin-destinations':renderAdminDestinations, 'admin-suppliers':renderAdminSuppliers, 'admin-matrix':renderAdminMatrix, 'admin-inventory':renderAdminInventory, import:renderImport, templates:renderTemplates };
+  const views={ dashboard:renderDashboard, heatmap:renderHeatmap, replenishment:renderReplenishment, 'purchase-orders':renderPurchaseOrders, 'suppliers-view':renderSuppliersView, 'admin-orders':renderAdminOrders, 'admin-skus':renderAdminSKUs, 'admin-destinations':renderAdminDestinations, 'admin-suppliers':renderAdminSuppliers, 'admin-matrix':renderAdminMatrix, 'admin-inventory':renderAdminInventory, herramienta:renderHerramientaUpdate, import:renderImport, templates:renderTemplates };
   (views[view]||(() => {}))(); closeSidebar();
 }
 
@@ -1056,6 +1057,166 @@ function deleteInventory(skuId,destId){ if(!confirm('¿Eliminar?')) return; cons
 // ══════════════════════════════════════════════════════
 // IMPORTAR / PLANTILLAS
 // ══════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════
+// ACTUALIZACIÓN HERRAMIENTA SAP
+// ══════════════════════════════════════════════════════
+function renderHerramientaUpdate() {
+  const db = DB.get();
+  const dests = db.destinations.filter(d => d.active);
+  const destOpts = dests.map(d =>
+    `<option value="${d.id}">${d.name}</option>`
+  ).join('');
+
+  // Detectar destinos bogota/galapa automáticamente
+  const autoBog = dests.find(d => /bogot/i.test(d.name) || /bogot/i.test(d.id))?.id || (dests[0]?.id || '');
+  const autoGal = dests.find(d => !/bogot/i.test(d.name) && !/bogot/i.test(d.id))?.id || (dests[1]?.id || dests[0]?.id || '');
+
+  document.getElementById('content').innerHTML = `
+    <div class="section-header">
+      <div>
+        <div class="section-title">Actualización herramienta</div>
+        <div class="section-sub">Carga datos de inventario, IRDs y pedidos desde la Herramienta SAP (.xlsb)</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+      <!-- Configuración de destinos -->
+      <div class="card">
+        <div class="card-header"><h3>Mapeo de destinos</h3></div>
+        <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
+          <div class="form-group">
+            <label>Columna M (Dispo Bogotá) → Destino</label>
+            <select id="h-dest-bog" class="filter-select" style="width:100%">
+              ${dests.map(d => `<option value="${d.id}" ${d.id===autoBog?'selected':''}>${d.name}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Columna AE (Dispo COL) → Destino</label>
+            <select id="h-dest-gal" class="filter-select" style="width:100%">
+              ${dests.map(d => `<option value="${d.id}" ${d.id===autoGal?'selected':''}>${d.name}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Pedidos ME80AN → Destino</label>
+            <select id="h-dest-orders" class="filter-select" style="width:100%">
+              ${dests.map(d => `<option value="${d.id}" ${d.id===autoGal?'selected':''}>${d.name}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Qué se actualiza -->
+      <div class="card">
+        <div class="card-header"><h3>Qué actualiza este proceso</h3></div>
+        <div class="card-body" style="font-size:12.5px;display:flex;flex-direction:column;gap:6px">
+          <div style="display:flex;align-items:center;gap:8px;color:var(--success)">✓ <span>Inventario disponible (por destino)</span></div>
+          <div style="display:flex;align-items:center;gap:8px;color:var(--success)">✓ <span>IRD real por destino (IRDR)</span></div>
+          <div style="display:flex;align-items:center;gap:8px;color:var(--success)">✓ <span>IRD teórico mes en curso y siguiente</span></div>
+          <div style="display:flex;align-items:center;gap:8px;color:var(--success)">✓ <span>Pedidos en camino desde ME80AN (reemplaza SAP anteriores)</span></div>
+          <div style="height:1px;background:var(--border);margin:4px 0"></div>
+          <div style="display:flex;align-items:center;gap:8px;color:var(--text3)">✗ <span>Proveedores, contactos, pesos, MOQ, lead times</span></div>
+          <div style="display:flex;align-items:center;gap:8px;color:var(--text3)">✗ <span>DDI objetivo, categoría, descripción de SKU</span></div>
+          <div style="display:flex;align-items:center;gap:8px;color:var(--text3)">✗ <span>Pedidos registrados manualmente (se conservan)</span></div>
+          <div style="display:flex;align-items:center;gap:8px;color:var(--text3)">✗ <span>SKUs no registrados en la app (se ignoran)</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Zona de carga -->
+    <div class="card">
+      <div class="card-header"><h3>Cargar archivo .xlsb</h3></div>
+      <div class="card-body">
+        <div id="h-drop-zone" class="drop-zone" style="padding:40px 20px"
+          ondragover="event.preventDefault();this.classList.add('drag-over')"
+          ondragleave="this.classList.remove('drag-over')"
+          ondrop="event.preventDefault();this.classList.remove('drag-over');handleHerramientaDrop(event)">
+          <div class="drop-icon">📊</div>
+          <div class="drop-title">Arrastra el archivo aquí</div>
+          <div class="drop-sub">Herramienta_de_seguimiento_SAP_*.xlsb</div>
+          <label class="btn btn-primary" style="margin-top:12px;cursor:pointer">
+            Seleccionar archivo
+            <input type="file" accept=".xlsb,.xlsx,.xlsm" style="display:none"
+              onchange="handleHerramientaSelect(this.files[0])">
+          </label>
+        </div>
+        <div id="h-progress" style="display:none;margin-top:16px">
+          <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;
+                      background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border)">
+            <div class="spinner"></div>
+            <span id="h-progress-msg" style="font-size:13px">Leyendo archivo...</span>
+          </div>
+        </div>
+        <div id="h-result" style="display:none;margin-top:16px"></div>
+      </div>
+    </div>`;
+}
+
+function handleHerramientaDrop(e) {
+  const file = e.dataTransfer.files[0];
+  if (file) handleHerramientaSelect(file);
+}
+
+async function handleHerramientaSelect(file) {
+  if (!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['xlsb','xlsx','xlsm'].includes(ext)) {
+    toast('Solo se aceptan archivos .xlsb, .xlsx o .xlsm', 'error'); return;
+  }
+
+  const prog    = document.getElementById('h-progress');
+  const result  = document.getElementById('h-result');
+  const progMsg = document.getElementById('h-progress-msg');
+
+  prog.style.display   = 'block';
+  result.style.display = 'none';
+  progMsg.textContent  = `Leyendo ${file.name}...`;
+
+  try {
+    const opts = {
+      destBog:    document.getElementById('h-dest-bog').value,
+      destGal:    document.getElementById('h-dest-gal').value,
+      destOrders: document.getElementById('h-dest-orders').value
+    };
+
+    progMsg.textContent = 'Procesando hojas HERRAMIENTA y ME80AN...';
+    const res = await Importer.importHerramientaFile(file, opts);
+
+    prog.style.display = 'none';
+    result.style.display = 'block';
+
+    if (res.success) {
+      recalcAll(false);
+      result.innerHTML = `
+        <div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);
+                    border-radius:var(--radius2);padding:16px 20px">
+          <div style="font-size:14px;font-weight:700;color:var(--success);margin-bottom:12px">
+            ✓ Actualización completada — ${file.name}
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:12px">
+            <div class="detail-stat"><div class="detail-stat-label">Inventarios actualizados</div><div class="detail-stat-value">${res.inventario}</div></div>
+            <div class="detail-stat"><div class="detail-stat-label">IRDs teóricos cargados</div><div class="detail-stat-value">${res.monthlyIrds}</div></div>
+            <div class="detail-stat"><div class="detail-stat-label">Pedidos ME80AN</div><div class="detail-stat-value">${res.orders}</div></div>
+            <div class="detail-stat"><div class="detail-stat-label">SKUs ignorados (no registrados)</div><div class="detail-stat-value" style="color:var(--text3)">${res.skipped}</div></div>
+          </div>
+          ${res.warnings.length ? `<div style="font-size:12px;color:var(--text3)">⚠ ${res.warnings.join(' · ')}</div>` : ''}
+        </div>`;
+      toast('Herramienta SAP actualizada correctamente', 'success', 4000);
+    } else {
+      result.innerHTML = `
+        <div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);
+                    border-radius:var(--radius2);padding:16px 20px">
+          <div style="font-size:14px;font-weight:700;color:var(--danger);margin-bottom:8px">✗ Error al procesar</div>
+          <ul style="margin:0;padding-left:16px;font-size:12.5px;color:var(--text2)">
+            ${res.errors.map(e => `<li>${e}</li>`).join('')}
+          </ul>
+        </div>`;
+    }
+  } catch(err) {
+    prog.style.display = 'none';
+    toast(`Error: ${err.message}`, 'error');
+  }
+}
+
 function renderImport(){ document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">Importar Excel</div></div></div><div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleDrop(event)"><div class="drop-icon">⊟</div><div class="drop-title">Arrastra tu archivo Excel aquí</div><div class="drop-sub">.xlsx o .xlsb únicamente</div><input type="file" id="file-input" accept=".xlsx,.xlsb" style="display:none" onchange="handleFileSelect(this)"></div><div id="import-result" style="margin-top:20px"></div><div class="card" style="margin-top:20px"><div class="card-header"><h3>Hojas soportadas (v2)</h3></div><div class="card-body"><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">${[['SKUs','SKU, Nombre, Categoría, DDI Objetivo, MOQ'],['Inventario','SKU, Destino, Inventario, IRD Real, IRD T mes, IRD T mes+1, IRD T mes+2, IRD T mes+3'],['Proveedores','Proveedor, Nombre, Contacto, Email'],['Matriz','SKU, Proveedor, Destino, Lead Time, Peso (%), Activo'],['Pedidos','SKU, Destino, Proveedor, Cantidad, Fecha Llegada, Notas']].map(([n,c])=>`<div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px"><div style="font-weight:700;margin-bottom:4px">${n}</div><div style="font-size:11px;color:var(--text3)">${c}</div></div>`).join('')}</div></div></div>`; }
 function handleDrop(e){ e.preventDefault(); document.getElementById('drop-zone').classList.remove('drag-over'); const f=e.dataTransfer.files[0]; if(f) processImport(f); }
 function handleFileSelect(input){ if(input.files[0]) processImport(input.files[0]); }
