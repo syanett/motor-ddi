@@ -649,22 +649,24 @@ const Importer = {
   },
 
   /**
-   * Importa desde la Herramienta SAP (.xlsb)
-   * Solo actualiza datos de SKUs que ya existen en la app.
-   * NO modifica: proveedores, contactos, DDI obj, MOQ, lead times, pesos, destinos.
+   * Lee la Herramienta SAP (.xlsb) y devuelve una VISTA PREVIA de los cambios,
+   * sin aplicar nada. El usuario confirma después con applyHerramientaUpdate().
    *
    * opts: { destBog, destGal, destOrders }
-   *   destBog:    id del destino que corresponde a Bogotá  (default: 'bogota')
-   *   destGal:    id del destino que corresponde a Galapa  (default: 'galapa')
-   *   destOrders: id del destino para los pedidos ME80AN   (default: 'galapa')
+   * Retorna: { success, errors, warnings, preview, skipped, monthsInfo }
+   *   preview.inventory: [{ skuId, skuCode, destId, destName, oldInv, newInv, oldIrd, newIrd }]
+   *   preview.monthly:   [{ skuId, skuCode, destId, destName, year, month, monthName, oldIrd, newIrd }]
+   *   preview.orders:    [{ skuId, skuCode, destName, qty, arrivalDate }]
    */
-  async importHerramientaFile(file, opts = {}) {
+  async parseHerramientaFile(file, opts = {}) {
     const destBog    = opts.destBog    || 'bogota';
     const destGal    = opts.destGal    || 'galapa';
     const destOrders = opts.destOrders || 'galapa';
     const result = {
-      success: false, errors: [], warnings: [],
-      inventario: 0, monthlyIrds: 0, orders: 0, skipped: 0
+      success: false, errors: [], warnings: [], skipped: 0,
+      preview: { inventory: [], monthly: [], orders: [] },
+      monthsInfo: '',
+      _opts: { destBog, destGal, destOrders }
     };
 
     try {
@@ -678,165 +680,176 @@ const Importer = {
       const wb = XLSX.read(new Uint8Array(ab), { type: 'array', cellDates: false, raw: true });
       const db = DB.get();
 
-      // Mapa de búsqueda: código normalizado → skuId
       const skuMap = {};
       for (const sku of db.skus) {
-        skuMap[sku.code.toLowerCase().replace(/\s+/g,'_')]  = sku.id;
-        skuMap[String(sku.code).trim().toLowerCase()]       = sku.id;
-        skuMap[sku.id]                                       = sku.id;
+        skuMap[sku.code.toLowerCase().replace(/\s+/g,'_')] = sku.id;
+        skuMap[String(sku.code).trim().toLowerCase()]      = sku.id;
+        skuMap[sku.id]                                      = sku.id;
       }
+      const skuById   = id => db.skus.find(s => s.id === id);
+      const destName  = id => (db.destinations.find(d => d.id === id)||{}).name || id;
+      const hasBog    = !!db.destinations.find(d => d.id === destBog && d.active);
+      const hasGal    = !!db.destinations.find(d => d.id === destGal && d.active);
 
-      // Mapa de meses en español
-      const MESES = {
-        'ENE':1,'FEB':2,'MAR':3,'ABR':4,'MAY':5,'JUN':6,
-        'JUL':7,'AGO':8,'SEP':9,'OCT':10,'NOV':11,'DIC':12
-      };
+      const MESES = {'ENE':1,'FEB':2,'MAR':3,'ABR':4,'MAY':5,'JUN':6,
+                     'JUL':7,'AGO':8,'SEP':9,'OCT':10,'NOV':11,'DIC':12};
+      const MNAME = m => ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][m-1];
 
-      // Convierte serial Excel a YYYY-MM-DD
       const serialToISO = s => {
         if (!s || typeof s !== 'number') return null;
-        // Época Excel: 30 dic 1899 = serial 0
         const d = new Date(Math.round((s - 25569) * 86400000));
         return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
       };
 
-      // ─── HOJA HERRAMIENTA ─────────────────────────────────────────────
+      // ─── HOJA HERRAMIENTA ───
       if (!wb.Sheets['HERRAMIENTA']) {
         result.warnings.push('Hoja "HERRAMIENTA" no encontrada');
       } else {
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets['HERRAMIENTA'],
-          { header: 1, defval: null, raw: true });
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets['HERRAMIENTA'], { header: 1, defval: null, raw: true });
+        const hdr  = rows[4] || [];
+        const today  = DateUtils.today();
+        const curYear= today.getFullYear(), curMo = today.getMonth() + 1;
+        const labelT = String(hdr[19] || '').trim().toUpperCase().slice(0,3);
+        const labelU = String(hdr[20] || '').trim().toUpperCase().slice(0,3);
+        const moT = MESES[labelT] || curMo;
+        const moU = MESES[labelU] || (curMo === 12 ? 1 : curMo + 1);
+        const yrT = curYear;
+        const yrU = moU < moT ? curYear + 1 : curYear;
+        result.monthsInfo = `IRD teórico: ${MNAME(moT)} ${yrT} (col T) y ${MNAME(moU)} ${yrU} (col U)`;
 
-        // Fila de cabeceras: índice 4 (fila 5 en Excel)
-        const hdr = rows[4] || [];
-
-        // Determinar meses de las columnas T (idx 19) y U (idx 20)
-        const today    = DateUtils.today();
-        const curYear  = today.getFullYear();
-        const curMo    = today.getMonth() + 1;
-
-        // Leer etiqueta del mes del encabezado (ej. 'JUN', 'JUL')
-        const labelT   = String(hdr[19] || '').trim().toUpperCase().slice(0,3);
-        const labelU   = String(hdr[20] || '').trim().toUpperCase().slice(0,3);
-        const moT      = MESES[labelT] || curMo;
-        const moU      = MESES[labelU] || (curMo === 12 ? 1 : curMo + 1);
-        const yrT      = curYear;
-        const yrU      = moU < moT ? curYear + 1 : curYear;
-
-        // Datos desde fila 6 (índice 5)
         for (let i = 5; i < rows.length; i++) {
           const row = rows[i];
           if (!row) continue;
           const rawCode = String(row[7] ?? '').trim();
           if (!rawCode || rawCode === 'Código') continue;
-
           const skuId = skuMap[rawCode.toLowerCase()];
           if (!skuId) { result.skipped++; continue; }
 
-          const invBog  = parseFloat(row[12]);
-          const irdBog  = parseFloat(row[15]);
-          const irdGal  = parseFloat(row[17]);
-          const irdTmes = parseFloat(row[19]);
-          const irdTnxt = parseFloat(row[20]);
-          const invGal  = parseFloat(row[30]);
+          const sku    = skuById(skuId);
+          const invBog = parseFloat(row[12]);
+          const irdBog = parseFloat(row[15]);
+          const irdGal = parseFloat(row[17]);
+          const irdTm  = parseFloat(row[19]);
+          const irdTn  = parseFloat(row[20]);
+          const invGal = parseFloat(row[30]);
 
-          const hasBog = db.destinations.find(d => d.id === destBog && d.active);
-          const hasGal = db.destinations.find(d => d.id === destGal && d.active);
-
-          // Actualizar inventario Bogotá
           if (hasBog && !isNaN(invBog) && !isNaN(irdBog)) {
-            const existing = db.inventory.find(x => x.skuId===skuId && x.destId===destBog) || {};
-            Admin.saveInventory({ ...existing, skuId, destId: destBog,
-              inventory: invBog, ird: irdBog });
-            result.inventario++;
+            const ex = db.inventory.find(x => x.skuId===skuId && x.destId===destBog) || {};
+            result.preview.inventory.push({
+              skuId, skuCode: sku.code, destId: destBog, destName: destName(destBog),
+              oldInv: ex.inventory ?? null, newInv: invBog,
+              oldIrd: ex.ird ?? null,       newIrd: irdBog
+            });
           }
-
-          // Actualizar inventario Galapa
           if (hasGal && !isNaN(invGal) && !isNaN(irdGal)) {
-            const existing = db.inventory.find(x => x.skuId===skuId && x.destId===destGal) || {};
-            Admin.saveInventory({ ...existing, skuId, destId: destGal,
-              inventory: invGal, ird: irdGal });
-            result.inventario++;
+            const ex = db.inventory.find(x => x.skuId===skuId && x.destId===destGal) || {};
+            result.preview.inventory.push({
+              skuId, skuCode: sku.code, destId: destGal, destName: destName(destGal),
+              oldInv: ex.inventory ?? null, newInv: invGal,
+              oldIrd: ex.ird ?? null,       newIrd: irdGal
+            });
           }
-
           // IRD teórico mes en curso
-          if (!isNaN(irdTmes)) {
-            if (hasBog) Admin.saveMonthlyIrd({ skuId, destId: destBog, year: yrT, month: moT, ird: irdTmes });
-            if (hasGal) Admin.saveMonthlyIrd({ skuId, destId: destGal, year: yrT, month: moT, ird: irdTmes });
-            result.monthlyIrds++;
+          if (!isNaN(irdTm)) {
+            for (const [dId, ok] of [[destBog,hasBog],[destGal,hasGal]]) {
+              if (!ok) continue;
+              const ex = db.monthlyIrds.find(x => x.skuId===skuId && x.destId===dId && x.year===yrT && x.month===moT);
+              result.preview.monthly.push({
+                skuId, skuCode: sku.code, destId: dId, destName: destName(dId),
+                year: yrT, month: moT, monthName: MNAME(moT),
+                oldIrd: ex ? ex.ird : null, newIrd: irdTm
+              });
+            }
           }
-
           // IRD teórico mes siguiente
-          if (!isNaN(irdTnxt)) {
-            if (hasBog) Admin.saveMonthlyIrd({ skuId, destId: destBog, year: yrU, month: moU, ird: irdTnxt });
-            if (hasGal) Admin.saveMonthlyIrd({ skuId, destId: destGal, year: yrU, month: moU, ird: irdTnxt });
-            result.monthlyIrds++;
+          if (!isNaN(irdTn)) {
+            for (const [dId, ok] of [[destBog,hasBog],[destGal,hasGal]]) {
+              if (!ok) continue;
+              const ex = db.monthlyIrds.find(x => x.skuId===skuId && x.destId===dId && x.year===yrU && x.month===moU);
+              result.preview.monthly.push({
+                skuId, skuCode: sku.code, destId: dId, destName: destName(dId),
+                year: yrU, month: moU, monthName: MNAME(moU),
+                oldIrd: ex ? ex.ird : null, newIrd: irdTn
+              });
+            }
           }
         }
       }
 
-      // ─── HOJA ME80AN REPARTO ──────────────────────────────────────────
+      // ─── HOJA ME80AN REPARTO ───
       if (!wb.Sheets['ME80AN Reparto']) {
         result.warnings.push('Hoja "ME80AN Reparto" no encontrada');
       } else {
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets['ME80AN Reparto'],
-          { header: 1, defval: null, raw: true });
-
-        const matchedSKUs = new Set();
-        const newOrders   = [];
-
-        // Cabeceras en fila 2 (índice 1), datos desde fila 3 (índice 2)
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets['ME80AN Reparto'], { header: 1, defval: null, raw: true });
         for (let i = 2; i < rows.length; i++) {
           const row = rows[i];
           if (!row) continue;
           const rawCode = String(row[7] ?? '').trim();
           if (!rawCode || rawCode === 'Material') continue;
-
           const skuId = skuMap[rawCode.toLowerCase()];
           if (!skuId) continue;
-
-          const qty     = parseFloat(row[9]);
-          const serial  = row[12];
+          const qty = parseFloat(row[9]);
           if (!qty || qty <= 0) continue;
-
-          const arrivalDate = serialToISO(serial);
+          const arrivalDate = serialToISO(row[12]);
           if (!arrivalDate) {
             result.errors.push(`ME80AN fila ${i+1}: fecha inválida para SKU ${rawCode}`);
             continue;
           }
-
-          matchedSKUs.add(skuId);
-          newOrders.push({
-            id: `sap_${skuId}_${i}_${Date.now()}`,
-            skuId,
-            destId:    destOrders,
-            supplierId: '',
-            qty,
-            arrivalDate,
-            notes: 'SAP ME80AN'
+          const sku = skuById(skuId);
+          result.preview.orders.push({
+            skuId, skuCode: sku.code, destId: destOrders, destName: destName(destOrders),
+            qty, arrivalDate
           });
-        }
-
-        // Reemplazar pedidos SAP anteriores de los SKUs procesados
-        if (matchedSKUs.size > 0) {
-          db.orders = db.orders.filter(o => {
-            if (!matchedSKUs.has(o.skuId)) return true; // otros SKUs: conservar
-            if (o.notes === 'SAP ME80AN')  return false; // SAP anteriores: reemplazar
-            return true;                                   // manuales: conservar
-          });
-          db.orders.push(...newOrders);
-          result.orders = newOrders.length;
         }
       }
 
-      DB.save();
       result.success = true;
     } catch(e) {
       result.errors.push(e.message);
-      console.error('importHerramientaFile error:', e);
+      console.error('parseHerramientaFile error:', e);
     }
-
     return result;
+  },
+
+  /**
+   * Aplica los cambios previamente leídos por parseHerramientaFile.
+   * preview = el objeto result.preview; opts = result._opts
+   */
+  applyHerramientaUpdate(preview, opts = {}) {
+    const db = DB.get();
+    const destOrders = opts.destOrders || 'galapa';
+    const counts = { inventory: 0, monthly: 0, orders: 0 };
+
+    // Inventario
+    for (const p of preview.inventory) {
+      const ex = db.inventory.find(x => x.skuId===p.skuId && x.destId===p.destId) || {};
+      Admin.saveInventory({ ...ex, skuId: p.skuId, destId: p.destId, inventory: p.newInv, ird: p.newIrd });
+      counts.inventory++;
+    }
+    // IRDs teóricos
+    for (const p of preview.monthly) {
+      Admin.saveMonthlyIrd({ skuId: p.skuId, destId: p.destId, year: p.year, month: p.month, ird: p.newIrd });
+      counts.monthly++;
+    }
+    // Pedidos: reemplazar SAP anteriores de los SKUs incluidos
+    if (preview.orders.length) {
+      const matchedSKUs = new Set(preview.orders.map(o => o.skuId));
+      db.orders = db.orders.filter(o => {
+        if (!matchedSKUs.has(o.skuId)) return true;
+        if (o.notes === 'SAP ME80AN')  return false;
+        return true;
+      });
+      preview.orders.forEach((o, i) => {
+        db.orders.push({
+          id: `sap_${o.skuId}_${i}_${Date.now()}`,
+          skuId: o.skuId, destId: o.destId, supplierId: '',
+          qty: o.qty, arrivalDate: o.arrivalDate, notes: 'SAP ME80AN'
+        });
+        counts.orders++;
+      });
+    }
+    DB.save();
+    return counts;
   },
 
   async importFile(file) {

@@ -149,6 +149,7 @@
       </div>
       <div class="nav-section">
         <div class="nav-label">Datos</div>
+        <div class="nav-item" data-view="herramienta" onclick="navigateTo('herramienta')"><span class="nav-icon">⚙</span> Actualización herramienta</div>
         <div class="nav-item" data-view="import"    onclick="navigateTo('import')"><span class="nav-icon">↓</span> Importar Excel</div>
         <div class="nav-item" data-view="templates" onclick="navigateTo('templates')"><span class="nav-icon">⊟</span> Plantillas</div>
       </div>
@@ -1156,6 +1157,10 @@ function handleHerramientaDrop(e) {
   if (file) handleHerramientaSelect(file);
 }
 
+// Estado temporal del preview pendiente de confirmar
+let _herramientaPreview = null;
+let _herramientaOpts = null;
+
 async function handleHerramientaSelect(file) {
   if (!file) return;
   const ext = file.name.split('.').pop().toLowerCase();
@@ -1177,45 +1182,165 @@ async function handleHerramientaSelect(file) {
       destGal:    document.getElementById('h-dest-gal').value,
       destOrders: document.getElementById('h-dest-orders').value
     };
-
-    progMsg.textContent = 'Procesando hojas HERRAMIENTA y ME80AN...';
-    const res = await Importer.importHerramientaFile(file, opts);
+    progMsg.textContent = 'Analizando hojas HERRAMIENTA y ME80AN...';
+    const res = await Importer.parseHerramientaFile(file, opts);
 
     prog.style.display = 'none';
-    result.style.display = 'block';
 
-    if (res.success) {
-      recalcAll(false);
-      result.innerHTML = `
-        <div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);
-                    border-radius:var(--radius2);padding:16px 20px">
-          <div style="font-size:14px;font-weight:700;color:var(--success);margin-bottom:12px">
-            ✓ Actualización completada — ${file.name}
-          </div>
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:12px">
-            <div class="detail-stat"><div class="detail-stat-label">Inventarios actualizados</div><div class="detail-stat-value">${res.inventario}</div></div>
-            <div class="detail-stat"><div class="detail-stat-label">IRDs teóricos cargados</div><div class="detail-stat-value">${res.monthlyIrds}</div></div>
-            <div class="detail-stat"><div class="detail-stat-label">Pedidos ME80AN</div><div class="detail-stat-value">${res.orders}</div></div>
-            <div class="detail-stat"><div class="detail-stat-label">SKUs ignorados (no registrados)</div><div class="detail-stat-value" style="color:var(--text3)">${res.skipped}</div></div>
-          </div>
-          ${res.warnings.length ? `<div style="font-size:12px;color:var(--text3)">⚠ ${res.warnings.join(' · ')}</div>` : ''}
-        </div>`;
-      toast('Herramienta SAP actualizada correctamente', 'success', 4000);
-    } else {
-      result.innerHTML = `
-        <div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);
-                    border-radius:var(--radius2);padding:16px 20px">
-          <div style="font-size:14px;font-weight:700;color:var(--danger);margin-bottom:8px">✗ Error al procesar</div>
-          <ul style="margin:0;padding-left:16px;font-size:12.5px;color:var(--text2)">
-            ${res.errors.map(e => `<li>${e}</li>`).join('')}
-          </ul>
-        </div>`;
+    if (!res.success) {
+      result.style.display = 'block';
+      result.innerHTML = `<div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:var(--radius2);padding:16px 20px">
+        <div style="font-size:14px;font-weight:700;color:var(--danger);margin-bottom:8px">✗ Error al leer el archivo</div>
+        <ul style="margin:0;padding-left:16px;font-size:12.5px;color:var(--text2)">${res.errors.map(e=>`<li>${e}</li>`).join('')}</ul></div>`;
+      return;
     }
+
+    // Guardar preview para confirmar
+    _herramientaPreview = res.preview;
+    _herramientaOpts    = res._opts;
+    renderHerramientaPreview(res, file.name);
+
   } catch(err) {
     prog.style.display = 'none';
     toast(`Error: ${err.message}`, 'error');
   }
 }
+
+function renderHerramientaPreview(res, fileName) {
+  const p = res.preview;
+  const totalChanges = p.inventory.length + p.monthly.length + p.orders.length;
+
+  const fmtVal = v => v === null || v === undefined ? '—' : (typeof v === 'number' ? fmt(v, 2) : v);
+  const arrow  = (oldV, newV) => {
+    const changed = oldV === null || Math.abs((oldV||0) - (newV||0)) > 0.001;
+    return changed
+      ? `<span style="color:var(--text3)">${fmtVal(oldV)}</span> <span style="color:var(--accent)">→</span> <span style="color:var(--success);font-weight:700">${fmtVal(newV)}</span>`
+      : `<span style="color:var(--text3)">${fmtVal(newV)} (sin cambio)</span>`;
+  };
+
+  // Tabla de inventario + IRD real
+  const invRows = p.inventory.map(r => `
+    <tr>
+      <td class="bold">${r.skuCode}</td>
+      <td><span class="chip">${r.destName}</span></td>
+      <td style="font-family:var(--font-mono)">${arrow(r.oldInv, r.newInv)}</td>
+      <td style="font-family:var(--font-mono)">${arrow(r.oldIrd, r.newIrd)}</td>
+    </tr>`).join('');
+
+  // Tabla de IRDs teóricos
+  const monRows = p.monthly.map(r => `
+    <tr>
+      <td class="bold">${r.skuCode}</td>
+      <td><span class="chip">${r.destName}</span></td>
+      <td>${r.monthName} ${r.year}</td>
+      <td style="font-family:var(--font-mono)">${arrow(r.oldIrd, r.newIrd)}</td>
+    </tr>`).join('');
+
+  // Tabla de pedidos
+  const ordRows = p.orders.map(r => {
+    const arr = DateUtils.parse(r.arrivalDate);
+    const days = arr ? DateUtils.diffDays(DateUtils.today(), arr) : null;
+    const daysTxt = days === null ? '?' : (days < 0 ? `hace ${Math.abs(days)}d` : `en ${days}d`);
+    return `<tr>
+      <td class="bold">${r.skuCode}</td>
+      <td><span class="chip">${r.destName}</span></td>
+      <td style="font-family:var(--font-mono);color:var(--accent);font-weight:700">${fmtInt(r.qty)}</td>
+      <td style="font-family:var(--font-mono)">${r.arrivalDate} <span style="color:var(--text3);font-size:11px">(${daysTxt})</span></td>
+    </tr>`;
+  }).join('');
+
+  const result = document.getElementById('h-result');
+  result.style.display = 'block';
+  result.innerHTML = `
+    <div style="background:var(--bg2);border:2px solid var(--accent);border-radius:var(--radius2);overflow:hidden">
+      <div style="background:var(--accent);padding:12px 18px;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:14px;font-weight:800;color:white">Vista previa de cambios — ${fileName}</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.8)">${res.monthsInfo} · ${res.skipped} SKUs ignorados (no registrados)</div>
+        </div>
+        <div style="font-family:var(--font-mono);font-size:22px;font-weight:900;color:white">${totalChanges} cambios</div>
+      </div>
+
+      <div style="padding:16px 18px;max-height:520px;overflow-y:auto">
+        ${res.warnings.length ? `<div style="font-size:12px;color:var(--warning);margin-bottom:12px">⚠ ${res.warnings.join(' · ')}</div>` : ''}
+
+        ${p.inventory.length ? `
+          <div style="font-size:13px;font-weight:700;margin:6px 0 8px;color:var(--text)">Inventario + IRD Real (${p.inventory.length})</div>
+          <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:18px">
+            <thead><tr style="background:var(--bg3)">
+              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">SKU</th>
+              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">Destino</th>
+              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">Inventario</th>
+              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">IRD Real</th>
+            </tr></thead>
+            <tbody>${invRows}</tbody>
+          </table>` : ''}
+
+        ${p.monthly.length ? `
+          <div style="font-size:13px;font-weight:700;margin:6px 0 8px;color:var(--text)">IRDs Teóricos Mensuales (${p.monthly.length})</div>
+          <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:18px">
+            <thead><tr style="background:var(--bg3)">
+              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">SKU</th>
+              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">Destino</th>
+              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">Mes</th>
+              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">IRD Teórico</th>
+            </tr></thead>
+            <tbody>${monRows}</tbody>
+          </table>` : ''}
+
+        ${p.orders.length ? `
+          <div style="font-size:13px;font-weight:700;margin:6px 0 8px;color:var(--text)">Pedidos en Camino — ME80AN (${p.orders.length})</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Reemplazan los pedidos SAP anteriores de estos SKUs. Los pedidos manuales se conservan.</div>
+          <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:8px">
+            <thead><tr style="background:var(--bg3)">
+              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">SKU</th>
+              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">Destino</th>
+              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">Cantidad</th>
+              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">Fecha entrega</th>
+            </tr></thead>
+            <tbody>${ordRows}</tbody>
+          </table>` : ''}
+
+        ${totalChanges === 0 ? `<div style="text-align:center;padding:30px;color:var(--text3)">No se encontraron cambios para los SKUs registrados</div>` : ''}
+      </div>
+
+      <div style="padding:14px 18px;background:var(--bg3);border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px">
+        <button class="btn btn-secondary" onclick="cancelHerramientaUpdate()">Cancelar</button>
+        <button class="btn btn-primary" onclick="confirmHerramientaUpdate()" ${totalChanges===0?'disabled':''}>
+          ✓ Confirmar y aplicar ${totalChanges} cambios
+        </button>
+      </div>
+    </div>`;
+}
+
+function cancelHerramientaUpdate() {
+  _herramientaPreview = null;
+  _herramientaOpts = null;
+  document.getElementById('h-result').style.display = 'none';
+  toast('Actualización cancelada', 'info');
+}
+
+function confirmHerramientaUpdate() {
+  if (!_herramientaPreview) { toast('No hay datos para aplicar', 'warning'); return; }
+  const counts = Importer.applyHerramientaUpdate(_herramientaPreview, _herramientaOpts);
+  recalcAll(false);
+
+  const result = document.getElementById('h-result');
+  result.innerHTML = `
+    <div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);border-radius:var(--radius2);padding:16px 20px">
+      <div style="font-size:14px;font-weight:700;color:var(--success);margin-bottom:12px">✓ Cambios aplicados correctamente</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px">
+        <div class="detail-stat"><div class="detail-stat-label">Inventarios</div><div class="detail-stat-value">${counts.inventory}</div></div>
+        <div class="detail-stat"><div class="detail-stat-label">IRDs teóricos</div><div class="detail-stat-value">${counts.monthly}</div></div>
+        <div class="detail-stat"><div class="detail-stat-label">Pedidos ME80AN</div><div class="detail-stat-value">${counts.orders}</div></div>
+      </div>
+    </div>`;
+
+  _herramientaPreview = null;
+  _herramientaOpts = null;
+  toast('Herramienta SAP aplicada correctamente', 'success', 4000);
+}
+
 
 function renderImport(){ document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">Importar Excel</div></div></div><div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleDrop(event)"><div class="drop-icon">⊟</div><div class="drop-title">Arrastra tu archivo Excel aquí</div><div class="drop-sub">.xlsx o .xlsb únicamente</div><input type="file" id="file-input" accept=".xlsx,.xlsb" style="display:none" onchange="handleFileSelect(this)"></div><div id="import-result" style="margin-top:20px"></div><div class="card" style="margin-top:20px"><div class="card-header"><h3>Hojas soportadas (v2)</h3></div><div class="card-body"><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">${[['SKUs','SKU, Nombre, Categoría, DDI Objetivo, MOQ'],['Inventario','SKU, Destino, Inventario, IRD Real, IRD T mes, IRD T mes+1, IRD T mes+2, IRD T mes+3'],['Proveedores','Proveedor, Nombre, Contacto, Email'],['Matriz','SKU, Proveedor, Destino, Lead Time, Peso (%), Activo'],['Pedidos','SKU, Destino, Proveedor, Cantidad, Fecha Llegada, Notas']].map(([n,c])=>`<div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px"><div style="font-weight:700;margin-bottom:4px">${n}</div><div style="font-size:11px;color:var(--text3)">${c}</div></div>`).join('')}</div></div></div>`; }
 function handleDrop(e){ e.preventDefault(); document.getElementById('drop-zone').classList.remove('drag-over'); const f=e.dataTransfer.files[0]; if(f) processImport(f); }
