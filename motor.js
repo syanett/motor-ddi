@@ -749,29 +749,23 @@ const Importer = {
               oldIrd: ex.ird ?? null,       newIrd: irdGal
             });
           }
-          // IRD teórico mes en curso
-          if (!isNaN(irdTm)) {
-            for (const [dId, ok] of [[destBog,hasBog],[destGal,hasGal]]) {
-              if (!ok) continue;
-              const ex = db.monthlyIrds.find(x => x.skuId===skuId && x.destId===dId && x.year===yrT && x.month===moT);
-              result.preview.monthly.push({
-                skuId, skuCode: sku.code, destId: dId, destName: destName(dId),
-                year: yrT, month: moT, monthName: MNAME(moT),
-                oldIrd: ex ? ex.ird : null, newIrd: irdTm
-              });
-            }
+          // IRD teórico mes en curso — SOLO Galapa (Bogotá no tiene IRD teórico)
+          if (!isNaN(irdTm) && hasGal) {
+            const ex = db.monthlyIrds.find(x => x.skuId===skuId && x.destId===destGal && x.year===yrT && x.month===moT);
+            result.preview.monthly.push({
+              skuId, skuCode: sku.code, destId: destGal, destName: destName(destGal),
+              year: yrT, month: moT, monthName: MNAME(moT),
+              oldIrd: ex ? ex.ird : null, newIrd: irdTm
+            });
           }
-          // IRD teórico mes siguiente
-          if (!isNaN(irdTn)) {
-            for (const [dId, ok] of [[destBog,hasBog],[destGal,hasGal]]) {
-              if (!ok) continue;
-              const ex = db.monthlyIrds.find(x => x.skuId===skuId && x.destId===dId && x.year===yrU && x.month===moU);
-              result.preview.monthly.push({
-                skuId, skuCode: sku.code, destId: dId, destName: destName(dId),
-                year: yrU, month: moU, monthName: MNAME(moU),
-                oldIrd: ex ? ex.ird : null, newIrd: irdTn
-              });
-            }
+          // IRD teórico mes siguiente — SOLO Galapa
+          if (!isNaN(irdTn) && hasGal) {
+            const ex = db.monthlyIrds.find(x => x.skuId===skuId && x.destId===destGal && x.year===yrU && x.month===moU);
+            result.preview.monthly.push({
+              skuId, skuCode: sku.code, destId: destGal, destName: destName(destGal),
+              year: yrU, month: moU, monthName: MNAME(moU),
+              oldIrd: ex ? ex.ird : null, newIrd: irdTn
+            });
           }
         }
       }
@@ -831,14 +825,22 @@ const Importer = {
       Admin.saveMonthlyIrd({ skuId: p.skuId, destId: p.destId, year: p.year, month: p.month, ird: p.newIrd });
       counts.monthly++;
     }
-    // Pedidos: reemplazar SAP anteriores de los SKUs incluidos
+    // Pedidos: reemplazar SAP anteriores + dedup contra cualquier pedido idéntico
     if (preview.orders.length) {
       const matchedSKUs = new Set(preview.orders.map(o => o.skuId));
+      // Clave de coincidencia exacta: SKU + fecha + cantidad
+      const orderKey = o => `${o.skuId}|${o.arrivalDate}|${o.qty}`;
+      const incomingKeys = new Set(preview.orders.map(orderKey));
+
       db.orders = db.orders.filter(o => {
-        if (!matchedSKUs.has(o.skuId)) return true;
-        if (o.notes === 'SAP ME80AN')  return false;
+        // Eliminar SAP anteriores de los SKUs que vienen en la herramienta
+        if (matchedSKUs.has(o.skuId) && o.notes === 'SAP ME80AN') return false;
+        // Eliminar cualquier pedido (manual o no) que coincida exactamente con uno entrante
+        // → el de la herramienta lo reemplaza, evitando duplicados
+        if (incomingKeys.has(orderKey(o))) return false;
         return true;
       });
+
       preview.orders.forEach((o, i) => {
         db.orders.push({
           id: `sap_${o.skuId}_${i}_${Date.now()}`,

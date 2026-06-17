@@ -875,11 +875,14 @@ function renderAdminSuppliers(){ const db=DB.get(); document.getElementById('con
 function openSupplierForm(s=null){ document.getElementById('form-modal-title').textContent=s?'Editar Proveedor':'Nuevo Proveedor'; document.getElementById('form-modal-body').innerHTML=`<div class="form-grid"><div class="form-group"><label>Nombre *</label><input id="f-sname" value="${s?.name||''}"></div><div class="form-group"><label>Contacto</label><input id="f-scont" value="${s?.contact||''}"></div><div class="form-group"><label>Email</label><input id="f-semail" value="${s?.email||''}"></div></div>`; formModalCallback=()=>{ const name=document.getElementById('f-sname').value.trim(); if(!name){toast('Nombre requerido','error');return;} Admin.saveSupplier({id:s?.id,name,contact:document.getElementById('f-scont').value.trim(),email:document.getElementById('f-semail').value.trim(),active:true}); closeModal('form-modal'); recalcAll(false); renderAdminSuppliers(); toast('Guardado','success'); }; document.getElementById('form-modal').style.display='flex'; }
 function deleteSupplier(id){ if(!confirm('¿Eliminar?')) return; Admin.deleteSupplier(id); recalcAll(false); renderAdminSuppliers(); toast('Eliminado','info'); }
 
-function renderAdminMatrix(sf='',df=''){ const db=DB.get(); let m=[...db.matrix]; if(sf) m=m.filter(x=>x.skuId===sf); if(df) m=m.filter(x=>x.destId===df); document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">Matriz SKU–Prov–Dest</div></div><div class="section-actions"><button class="btn btn-primary btn-sm" onclick="openMatrixForm()">+ Nueva</button><button class="btn btn-danger btn-sm" onclick="clearAll('matrix')" title="Borrar toda la matriz">✕ Borrar todo</button></div></div><div class="toolbar"><select class="filter-select" id="mat-sku" onchange="renderAdminMatrix(this.value,document.getElementById('mat-dest').value)"><option value="">Todos los SKUs</option>${db.skus.map(s=>`<option value="${s.id}" ${sf===s.id?'selected':''}>${s.code}</option>`).join('')}</select><select class="filter-select" id="mat-dest" onchange="renderAdminMatrix(document.getElementById('mat-sku').value,this.value)"><option value="">Todos los destinos</option>${db.destinations.map(d=>`<option value="${d.id}" ${df===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div><div class="table-wrap"><table><thead><tr><th>SKU</th><th>Proveedor</th><th>Destino</th><th>LT (días)</th><th>Peso %</th><th>Norm %</th><th>MOQ</th><th>Activo</th><th></th></tr></thead><tbody>${m.length?m.map(x=>{ const sku=db.skus.find(s=>s.id===x.skuId); const sup=db.suppliers.find(s=>s.id===x.supplierId); const dest=db.destinations.find(d=>d.id===x.destId); const norm=Engine.normalizeSupplierWeights(x.skuId,x.destId); const ne=norm.find(n=>n.supplierId===x.supplierId); return `<tr><td class="bold">${sku?.code||x.skuId}</td><td>${sup?.name||x.supplierId}</td><td><span class="chip">${dest?.name||x.destId}</span></td><td class="mono">${x.leadTime}d</td><td class="mono">${fmt(x.weight,1)}%</td><td class="mono">${ne?fmt(ne.normalizedWeight*100,1):'—'}%</td><td class="mono" style="color:var(--accent)">${x.moq||1}</td><td><span class="chip ${x.active?'chip-success':'chip-danger'}">${x.active?'Sí':'No'}</span></td><td style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm btn-icon" onclick='openMatrixForm(${JSON.stringify(x)})'>✎</button><button class="btn btn-danger btn-sm btn-icon" onclick="deleteMatrixEntry('${x.skuId}','${x.supplierId}','${x.destId}')">✕</button></td></tr>`; }).join(''):`<tr><td colspan="8"><div class="empty-state"><div class="empty-title">Sin entradas</div></div></td></tr>`}</tbody></table></div>`; }
+function renderAdminMatrix(sf=null,df=null){ if(sf===null){const e=document.getElementById('mat-sku');sf=e?e.value:'';} if(df===null){const e=document.getElementById('mat-dest');df=e?e.value:'';} const db=DB.get(); let m=[...db.matrix]; if(sf) m=m.filter(x=>x.skuId===sf); if(df) m=m.filter(x=>x.destId===df); document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">Matriz SKU–Prov–Dest</div></div><div class="section-actions"><button class="btn btn-primary btn-sm" onclick="openMatrixForm()">+ Nueva</button><button class="btn btn-danger btn-sm" onclick="clearAll('matrix')" title="Borrar toda la matriz">✕ Borrar todo</button></div></div><div class="toolbar"><select class="filter-select" id="mat-sku" onchange="renderAdminMatrix(this.value,document.getElementById('mat-dest').value)"><option value="">Todos los SKUs</option>${db.skus.map(s=>`<option value="${s.id}" ${sf===s.id?'selected':''}>${s.code}</option>`).join('')}</select><select class="filter-select" id="mat-dest" onchange="renderAdminMatrix(document.getElementById('mat-sku').value,this.value)"><option value="">Todos los destinos</option>${db.destinations.map(d=>`<option value="${d.id}" ${df===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div><div class="table-wrap"><table><thead><tr><th>SKU</th><th>Proveedor</th><th>Destino</th><th>LT (días)</th><th>Peso %</th><th>Norm %</th><th>MOQ</th><th>Activo</th><th></th></tr></thead><tbody>${m.length?m.map(x=>{ const sku=db.skus.find(s=>s.id===x.skuId); const sup=db.suppliers.find(s=>s.id===x.supplierId); const dest=db.destinations.find(d=>d.id===x.destId); const norm=Engine.normalizeSupplierWeights(x.skuId,x.destId); const ne=norm.find(n=>n.supplierId===x.supplierId); return `<tr><td class="bold">${sku?.code||x.skuId}</td><td>${sup?.name||x.supplierId}</td><td><span class="chip">${dest?.name||x.destId}</span></td><td class="mono">${x.leadTime}d</td><td class="mono">${fmt(x.weight,1)}%</td><td class="mono">${ne?fmt(ne.normalizedWeight*100,1):'—'}%</td><td class="mono" style="color:var(--accent)">${x.moq||1}</td><td><span class="chip ${x.active?'chip-success':'chip-danger'}">${x.active?'Sí':'No'}</span></td><td style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm btn-icon" onclick='openMatrixForm(${JSON.stringify(x)})'>✎</button><button class="btn btn-danger btn-sm btn-icon" onclick="deleteMatrixEntry('${x.skuId}','${x.supplierId}','${x.destId}')">✕</button></td></tr>`; }).join(''):`<tr><td colspan="8"><div class="empty-state"><div class="empty-title">Sin entradas</div></div></td></tr>`}</tbody></table></div>`; }
 function openMatrixForm(e=null){ const db=DB.get(); document.getElementById('form-modal-title').textContent=e?'Editar':'Nueva Entrada'; document.getElementById('form-modal-body').innerHTML=`<div class="form-grid"><div class="form-group"><label>SKU *</label><select id="f-msku"><option value="">—</option>${db.skus.map(s=>`<option value="${s.id}" ${e?.skuId===s.id?'selected':''}>${s.code} — ${s.name}</option>`).join('')}</select></div><div class="form-group"><label>Proveedor *</label><select id="f-msup"><option value="">—</option>${db.suppliers.map(s=>`<option value="${s.id}" ${e?.supplierId===s.id?'selected':''}>${s.name}</option>`).join('')}</select></div><div class="form-group"><label>Destino *</label><select id="f-mdest"><option value="">—</option>${db.destinations.map(d=>`<option value="${d.id}" ${e?.destId===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div><div class="form-group"><label>Lead Time (días)</label><input id="f-mlt" type="number" value="${e?.leadTime||7}" min="0"></div><div class="form-group"><label>Peso (%)</label><input id="f-mw" type="number" value="${e?.weight||25}" min="0" max="100"></div><div class="form-group"><label>MOQ (mín. pedido)</label><input id="f-mmoq" type="number" value="${e?.moq||1}" min="1" placeholder="Ej: 50"></div><div class="form-group"><label>Activo</label><select id="f-mact"><option value="true" ${e?.active!==false?'selected':''}>Sí</option><option value="false" ${e?.active===false?'selected':''}>No</option></select></div></div>`; formModalCallback=()=>{ const skuId=document.getElementById('f-msku').value; const supplierId=document.getElementById('f-msup').value; const destId=document.getElementById('f-mdest').value; if(!skuId||!supplierId||!destId){toast('Todos los campos requeridos','error');return;} Admin.saveMatrixEntry({skuId,supplierId,destId,leadTime:parseFloat(document.getElementById('f-mlt').value)||0,weight:parseFloat(document.getElementById('f-mw').value)||25,moq:parseFloat(document.getElementById('f-mmoq').value)||1,active:document.getElementById('f-mact').value==='true'}); closeModal('form-modal'); recalcAll(false); renderAdminMatrix(); toast('Guardado','success'); }; document.getElementById('form-modal').style.display='flex'; }
 function deleteMatrixEntry(skuId,supplierId,destId){ if(!confirm('¿Eliminar?')) return; Admin.deleteMatrixEntry(skuId,supplierId,destId); recalcAll(false); renderAdminMatrix(); toast('Eliminado','info'); }
 
-function renderAdminInventory(sf='', df='') {
+function renderAdminInventory(sf=null, df=null) {
+  // Preservar filtros activos si no se pasan argumentos (ej. tras recalcAll)
+  if (sf === null) { const e = document.getElementById('inv-sku');  sf = e ? e.value : ''; }
+  if (df === null) { const e = document.getElementById('inv-dest'); df = e ? e.value : ''; }
   const db     = DB.get();
   const today  = DateUtils.today();
   const weeks  = DateUtils.getWeeks(10);
@@ -1208,8 +1211,42 @@ async function handleHerramientaSelect(file) {
 
 function renderHerramientaPreview(res, fileName) {
   const p = res.preview;
-  const totalChanges = p.inventory.length + p.monthly.length + p.orders.length;
+  // Marcar cada cambio con índice y estado "incluido"
+  p.inventory.forEach((r,i) => { r._id = 'inv'+i; r._on = true; });
+  p.monthly.forEach((r,i)   => { r._id = 'mon'+i; r._on = true; });
+  p.orders.forEach((r,i)    => { r._id = 'ord'+i; r._on = true; });
 
+  document.getElementById('h-result').style.display = 'block';
+  _herramientaFileName = fileName;
+  _herramientaMonthsInfo = res.monthsInfo;
+  _herramientaSkipped = res.skipped;
+  _herramientaWarnings = res.warnings;
+  _herramientaActiveTab = p.inventory.length ? 'inv' : (p.monthly.length ? 'mon' : 'ord');
+  drawHerramientaPreview();
+}
+
+let _herramientaFileName = '';
+let _herramientaMonthsInfo = '';
+let _herramientaSkipped = 0;
+let _herramientaWarnings = [];
+let _herramientaActiveTab = 'inv';
+
+function herramientaTab(tab) { _herramientaActiveTab = tab; drawHerramientaPreview(); }
+
+function toggleHerramientaChange(section, id) {
+  const arr = _herramientaPreview[section];
+  const row = arr.find(r => r._id === id);
+  if (row) row._on = !row._on;
+  drawHerramientaPreview();
+}
+
+function toggleAllHerramienta(section, on) {
+  _herramientaPreview[section].forEach(r => r._on = on);
+  drawHerramientaPreview();
+}
+
+function drawHerramientaPreview() {
+  const p = _herramientaPreview;
   const fmtVal = v => v === null || v === undefined ? '—' : (typeof v === 'number' ? fmt(v, 2) : v);
   const arrow  = (oldV, newV) => {
     const changed = oldV === null || Math.abs((oldV||0) - (newV||0)) > 0.001;
@@ -1217,97 +1254,103 @@ function renderHerramientaPreview(res, fileName) {
       ? `<span style="color:var(--text3)">${fmtVal(oldV)}</span> <span style="color:var(--accent)">→</span> <span style="color:var(--success);font-weight:700">${fmtVal(newV)}</span>`
       : `<span style="color:var(--text3)">${fmtVal(newV)} (sin cambio)</span>`;
   };
+  const chk = (section, r) =>
+    `<input type="checkbox" ${r._on?'checked':''} onchange="toggleHerramientaChange('${section}','${r._id}')" style="cursor:pointer;width:16px;height:16px">`;
 
-  // Tabla de inventario + IRD real
-  const invRows = p.inventory.map(r => `
-    <tr>
-      <td class="bold">${r.skuCode}</td>
-      <td><span class="chip">${r.destName}</span></td>
-      <td style="font-family:var(--font-mono)">${arrow(r.oldInv, r.newInv)}</td>
-      <td style="font-family:var(--font-mono)">${arrow(r.oldIrd, r.newIrd)}</td>
-    </tr>`).join('');
+  const counts = {
+    inv: p.inventory.filter(r=>r._on).length,
+    mon: p.monthly.filter(r=>r._on).length,
+    ord: p.orders.filter(r=>r._on).length
+  };
+  const totalOn = counts.inv + counts.mon + counts.ord;
 
-  // Tabla de IRDs teóricos
-  const monRows = p.monthly.map(r => `
-    <tr>
-      <td class="bold">${r.skuCode}</td>
-      <td><span class="chip">${r.destName}</span></td>
-      <td>${r.monthName} ${r.year}</td>
-      <td style="font-family:var(--font-mono)">${arrow(r.oldIrd, r.newIrd)}</td>
-    </tr>`).join('');
+  // ── Tab buttons ──
+  const tabBtn = (key, label, total, on) => `
+    <button onclick="herramientaTab('${key}')" style="
+      padding:8px 16px;border:none;border-bottom:2px solid ${_herramientaActiveTab===key?'var(--accent)':'transparent'};
+      background:transparent;color:${_herramientaActiveTab===key?'var(--accent)':'var(--text3)'};
+      font-size:13px;font-weight:${_herramientaActiveTab===key?'700':'500'};cursor:pointer;white-space:nowrap">
+      ${label} <span style="font-size:11px;opacity:.8">(${on}/${total})</span>
+    </button>`;
 
-  // Tabla de pedidos
-  const ordRows = p.orders.map(r => {
-    const arr = DateUtils.parse(r.arrivalDate);
-    const days = arr ? DateUtils.diffDays(DateUtils.today(), arr) : null;
-    const daysTxt = days === null ? '?' : (days < 0 ? `hace ${Math.abs(days)}d` : `en ${days}d`);
-    return `<tr>
-      <td class="bold">${r.skuCode}</td>
-      <td><span class="chip">${r.destName}</span></td>
-      <td style="font-family:var(--font-mono);color:var(--accent);font-weight:700">${fmtInt(r.qty)}</td>
-      <td style="font-family:var(--font-mono)">${r.arrivalDate} <span style="color:var(--text3);font-size:11px">(${daysTxt})</span></td>
-    </tr>`;
-  }).join('');
+  const tabs = `
+    <div style="display:flex;gap:4px;border-bottom:1px solid var(--border);padding:0 4px">
+      ${p.inventory.length ? tabBtn('inv','Inventario + IRD Real', p.inventory.length, counts.inv) : ''}
+      ${p.monthly.length   ? tabBtn('mon','IRDs Teóricos (Galapa)', p.monthly.length, counts.mon) : ''}
+      ${p.orders.length    ? tabBtn('ord','Pedidos ME80AN', p.orders.length, counts.ord) : ''}
+    </div>`;
+
+  // ── Tab content ──
+  let content = '';
+  const selectAllBar = (section) => `
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <button class="btn btn-ghost btn-sm" onclick="toggleAllHerramienta('${section}',true)">✓ Incluir todos</button>
+      <button class="btn btn-ghost btn-sm" onclick="toggleAllHerramienta('${section}',false)">✕ Descartar todos</button>
+    </div>`;
+  const th = t => `<th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">${t}</th>`;
+  const rowStyle = r => r._on ? '' : 'opacity:.4;text-decoration:line-through';
+
+  if (_herramientaActiveTab === 'inv') {
+    content = selectAllBar('inventory') + `
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead><tr style="background:var(--bg3)">${th('')}${th('SKU')}${th('Destino')}${th('Inventario')}${th('IRD Real')}</tr></thead>
+        <tbody>${p.inventory.map(r => `<tr style="${rowStyle(r)}">
+          <td style="padding:6px 10px">${chk('inventory',r)}</td>
+          <td class="bold">${r.skuCode}</td>
+          <td><span class="chip">${r.destName}</span></td>
+          <td style="font-family:var(--font-mono)">${arrow(r.oldInv, r.newInv)}</td>
+          <td style="font-family:var(--font-mono)">${arrow(r.oldIrd, r.newIrd)}</td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+  } else if (_herramientaActiveTab === 'mon') {
+    content = selectAllBar('monthly') + `
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead><tr style="background:var(--bg3)">${th('')}${th('SKU')}${th('Destino')}${th('Mes')}${th('IRD Teórico')}</tr></thead>
+        <tbody>${p.monthly.map(r => `<tr style="${rowStyle(r)}">
+          <td style="padding:6px 10px">${chk('monthly',r)}</td>
+          <td class="bold">${r.skuCode}</td>
+          <td><span class="chip">${r.destName}</span></td>
+          <td>${r.monthName} ${r.year}</td>
+          <td style="font-family:var(--font-mono)">${arrow(r.oldIrd, r.newIrd)}</td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+  } else if (_herramientaActiveTab === 'ord') {
+    content = `<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Reemplazan pedidos SAP anteriores y duplicados exactos (mismo SKU, fecha y cantidad).</div>`
+      + selectAllBar('orders') + `
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead><tr style="background:var(--bg3)">${th('')}${th('SKU')}${th('Destino')}${th('Cantidad')}${th('Fecha entrega')}</tr></thead>
+        <tbody>${p.orders.map(r => {
+          const arr = DateUtils.parse(r.arrivalDate);
+          const days = arr ? DateUtils.diffDays(DateUtils.today(), arr) : null;
+          const daysTxt = days === null ? '?' : (days < 0 ? `hace ${Math.abs(days)}d` : `en ${days}d`);
+          return `<tr style="${rowStyle(r)}">
+            <td style="padding:6px 10px">${chk('orders',r)}</td>
+            <td class="bold">${r.skuCode}</td>
+            <td><span class="chip">${r.destName}</span></td>
+            <td style="font-family:var(--font-mono);color:var(--accent);font-weight:700">${fmtInt(r.qty)}</td>
+            <td style="font-family:var(--font-mono)">${r.arrivalDate} <span style="color:var(--text3);font-size:11px">(${daysTxt})</span></td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>`;
+  }
 
   const result = document.getElementById('h-result');
-  result.style.display = 'block';
   result.innerHTML = `
     <div style="background:var(--bg2);border:2px solid var(--accent);border-radius:var(--radius2);overflow:hidden">
       <div style="background:var(--accent);padding:12px 18px;display:flex;justify-content:space-between;align-items:center">
         <div>
-          <div style="font-size:14px;font-weight:800;color:white">Vista previa de cambios — ${fileName}</div>
-          <div style="font-size:11px;color:rgba(255,255,255,.8)">${res.monthsInfo} · ${res.skipped} SKUs ignorados (no registrados)</div>
+          <div style="font-size:14px;font-weight:800;color:white">Vista previa de cambios — ${_herramientaFileName}</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.8)">${_herramientaMonthsInfo} · ${_herramientaSkipped} SKUs ignorados</div>
         </div>
-        <div style="font-family:var(--font-mono);font-size:22px;font-weight:900;color:white">${totalChanges} cambios</div>
+        <div style="font-family:var(--font-mono);font-size:22px;font-weight:900;color:white">${totalOn} cambios</div>
       </div>
-
-      <div style="padding:16px 18px;max-height:520px;overflow-y:auto">
-        ${res.warnings.length ? `<div style="font-size:12px;color:var(--warning);margin-bottom:12px">⚠ ${res.warnings.join(' · ')}</div>` : ''}
-
-        ${p.inventory.length ? `
-          <div style="font-size:13px;font-weight:700;margin:6px 0 8px;color:var(--text)">Inventario + IRD Real (${p.inventory.length})</div>
-          <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:18px">
-            <thead><tr style="background:var(--bg3)">
-              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">SKU</th>
-              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">Destino</th>
-              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">Inventario</th>
-              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">IRD Real</th>
-            </tr></thead>
-            <tbody>${invRows}</tbody>
-          </table>` : ''}
-
-        ${p.monthly.length ? `
-          <div style="font-size:13px;font-weight:700;margin:6px 0 8px;color:var(--text)">IRDs Teóricos Mensuales (${p.monthly.length})</div>
-          <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:18px">
-            <thead><tr style="background:var(--bg3)">
-              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">SKU</th>
-              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">Destino</th>
-              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">Mes</th>
-              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">IRD Teórico</th>
-            </tr></thead>
-            <tbody>${monRows}</tbody>
-          </table>` : ''}
-
-        ${p.orders.length ? `
-          <div style="font-size:13px;font-weight:700;margin:6px 0 8px;color:var(--text)">Pedidos en Camino — ME80AN (${p.orders.length})</div>
-          <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Reemplazan los pedidos SAP anteriores de estos SKUs. Los pedidos manuales se conservan.</div>
-          <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:8px">
-            <thead><tr style="background:var(--bg3)">
-              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">SKU</th>
-              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">Destino</th>
-              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">Cantidad</th>
-              <th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text3)">Fecha entrega</th>
-            </tr></thead>
-            <tbody>${ordRows}</tbody>
-          </table>` : ''}
-
-        ${totalChanges === 0 ? `<div style="text-align:center;padding:30px;color:var(--text3)">No se encontraron cambios para los SKUs registrados</div>` : ''}
-      </div>
-
+      ${_herramientaWarnings.length ? `<div style="font-size:12px;color:var(--warning);padding:8px 18px;background:var(--bg3)">⚠ ${_herramientaWarnings.join(' · ')}</div>` : ''}
+      ${tabs}
+      <div style="padding:16px 18px;max-height:460px;overflow-y:auto">${content}</div>
       <div style="padding:14px 18px;background:var(--bg3);border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px">
         <button class="btn btn-secondary" onclick="cancelHerramientaUpdate()">Cancelar</button>
-        <button class="btn btn-primary" onclick="confirmHerramientaUpdate()" ${totalChanges===0?'disabled':''}>
-          ✓ Confirmar y aplicar ${totalChanges} cambios
+        <button class="btn btn-primary" onclick="confirmHerramientaUpdate()" ${totalOn===0?'disabled':''}>
+          ✓ Confirmar y aplicar ${totalOn} cambios
         </button>
       </div>
     </div>`;
@@ -1322,7 +1365,16 @@ function cancelHerramientaUpdate() {
 
 function confirmHerramientaUpdate() {
   if (!_herramientaPreview) { toast('No hay datos para aplicar', 'warning'); return; }
-  const counts = Importer.applyHerramientaUpdate(_herramientaPreview, _herramientaOpts);
+  // Filtrar solo los cambios marcados como incluidos (_on)
+  const filtered = {
+    inventory: _herramientaPreview.inventory.filter(r => r._on),
+    monthly:   _herramientaPreview.monthly.filter(r => r._on),
+    orders:    _herramientaPreview.orders.filter(r => r._on)
+  };
+  const total = filtered.inventory.length + filtered.monthly.length + filtered.orders.length;
+  if (total === 0) { toast('No hay cambios seleccionados', 'warning'); return; }
+
+  const counts = Importer.applyHerramientaUpdate(filtered, _herramientaOpts);
   recalcAll(false);
 
   const result = document.getElementById('h-result');
