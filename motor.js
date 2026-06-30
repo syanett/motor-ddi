@@ -947,7 +947,7 @@ const Exporter = {
       for (const r of rows) {
         for (const d of r.distribution) {
           const sid = d.supplierId || '_sin_prov';
-          (bySupplier[sid] = bySupplier[sid] || { name: d.supplierName, items: [] });
+          (bySupplier[sid] = bySupplier[sid] || { name: d.supplierName, code: d.supplierId || '', items: [] });
           bySupplier[sid].items.push({
             code: r.skuCode, name: r.skuName,
             qty: d.quantity,
@@ -958,7 +958,7 @@ const Exporter = {
         // Si no hay distribución (sin proveedores), incluir el total bajo "sin proveedor"
         if (!r.distribution.length) {
           const sid = '_sin_prov';
-          (bySupplier[sid] = bySupplier[sid] || { name: '(sin proveedor)', items: [] });
+          (bySupplier[sid] = bySupplier[sid] || { name: '(sin proveedor)', code: '', items: [] });
           bySupplier[sid].items.push({
             code: r.skuCode, name: r.skuName, qty: r.suggestedQty,
             date: '', centro: centroFor(r.destName)
@@ -973,7 +973,7 @@ const Exporter = {
         if (!first) aoa.push([]); // separación entre bloques
         first = false;
         // Fila COD: / PROV:
-        aoa.push(['COD:', '', 'PROV:', sup.name, '', '', '', '', '', '', '', '']);
+        aoa.push(['COD:', sup.code, 'PROV:', sup.name, '', '', '', '', '', '', '', '']);
         aoa.push([]); // fila vacía
         aoa.push([...HDR]); // encabezados
         for (const it of sup.items) {
@@ -984,7 +984,14 @@ const Exporter = {
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       ws['!cols'] = [{wch:14},{wch:22},{wch:10},{wch:8},{wch:8},{wch:14},{wch:8},{wch:8},{wch:8},{wch:8},{wch:8},{wch:10}];
       // Nombre de hoja: máx 31 chars, sin caracteres inválidos
-      let sheetName = groupKey.toUpperCase().replace(/[\\\\\\/\\?\\*\\[\\]:]/g,'').slice(0,31);
+      let sheetName = groupKey.toUpperCase().replace(/[\\/?*[\]:]/g, '').slice(0, 31);
+      // Evitar nombres de hoja duplicados (Excel no lo permite)
+      let uniqueName = sheetName, suffix = 1;
+      while (wb.SheetNames.includes(uniqueName)) {
+        const tag = ` (${++suffix})`;
+        uniqueName = sheetName.slice(0, 31 - tag.length) + tag;
+      }
+      sheetName = uniqueName;
       XLSX.utils.book_append_sheet(wb, ws, sheetName);
     }
 
