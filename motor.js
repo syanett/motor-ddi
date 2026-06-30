@@ -775,6 +775,8 @@ const Importer = {
         result.warnings.push('Hoja "ME80AN Reparto" no encontrada');
       } else {
         const rows = XLSX.utils.sheet_to_json(wb.Sheets['ME80AN Reparto'], { header: 1, defval: null, raw: true });
+        // Mapa centro SAP → destino de la app
+        const centroMap = { '1000': destGal, '1001': destBog };
         for (let i = 2; i < rows.length; i++) {
           const row = rows[i];
           if (!row) continue;
@@ -789,9 +791,17 @@ const Importer = {
             result.errors.push(`ME80AN fila ${i+1}: fecha inválida para SKU ${rawCode}`);
             continue;
           }
+          // Centro desde columna O (índice 14): 1000=Galapa, 1001=Bogotá
+          const centro = String(row[14] ?? '').trim();
+          const dId = centroMap[centro];
+          if (!dId) {
+            result.warnings.push(`ME80AN fila ${i+1}: centro "${centro}" no reconocido (SKU ${rawCode})`);
+            continue;
+          }
+          if (!db.destinations.find(d => d.id === dId && d.active)) continue;
           const sku = skuById(skuId);
           result.preview.orders.push({
-            skuId, skuCode: sku.code, destId: destOrders, destName: destName(destOrders),
+            skuId, skuCode: sku.code, destId: dId, destName: destName(dId),
             qty, arrivalDate
           });
         }
@@ -887,48 +897,100 @@ const Importer = {
 // EXPORTADOR
 // ══════════════════════════════════════════════════════
 const Exporter = {
+  /**
+   * Exporta las órdenes de compra al formato SAP de programación de pedidos.
+   * - Una hoja por categoría (+ destino para diferenciar)
+   * - Dentro de cada hoja, un bloque por proveedor:
+   *     fila "COD: / PROV:", encabezados, filas de SKU con cantidad y fecha
+   * - Columnas "VACÍO" quedan en blanco
+   * - Fechas con puntos: DD.MM.YYYY
+   */
   exportResults(results) {
     const wb = XLSX.utils.book_new();
-    const summary = results.map(r => ({
-      'SKU': r.skuCode, 'Descripcion': r.description, 'Destino': r.destName,
-      'Inventario': r.currentInv,
-      'IRDR (u/dia)': Number(r.irdr.toFixed(2)),
-      'Dem. Semanal actual': r.weeklyDemandCur,
-      'Dem. Semanal proxima': r.weeklyDemandNxt,
-      'Ventas (rest. sem.)': r.ventas,
-      'Pedidos en Camino': r.incomingOrders,
-      'Inv. Proyectado': r.projectedInv,
-      'Inv. Objetivo': r.targetInv,
-      'Compra Bruta': r.compraBruta,
-      'Compra Sugerida': r.suggestedQty,
-      'DDI Actual': r.currentDDI !== null ? Number(r.currentDDI.toFixed(1)) : '',
-      'DDI Objetivo': r.targetDDI,
-      'DDI Proyectado': r.projectedDDI !== null ? Number(r.projectedDDI.toFixed(1)) : '',
-      'Estado': r.ddiColor.label,
-      'Semana Riesgo': r.firstCriticalWeek ? r.firstCriticalWeek.labelFull
-                     : r.firstRiskWeek ? r.firstRiskWeek.labelFull : 'Sin riesgo'
-    }));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), 'Resumen');
-    const heatRows = [];
-    for (const r of results) {
-      if (!r.weeklyProjection?.length) continue;
-      const base = { 'SKU': r.skuCode, 'Destino': r.destName, 'IRDR': r.irdr };
-      r.weeklyProjection.forEach(w => {
-        base[`Disp ${w.label}`] = w.projInv;
-        base[`DDI ${w.label}`]  = w.projDDI !== null ? Number(w.projDDI.toFixed(1)) : '';
-        base[`DemSem ${w.label}`] = w.weeklyDemand;
-      });
-      heatRows.push(base);
+    const db = DB.get();
+
+    // Fecha con puntos
+    const dotDate = iso => {
+      const d = DateUtils.parse(iso);
+      if (!d) return '';
+      return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`;
+    };
+
+    // Solo SKUs con compra sugerida
+    const withPurchase = results.filter(r => r.suggestedQty > 0);
+
+    // Agrupar por categoría + destino
+    const groups = {};
+    for (const r of withPurchase) {
+      const cat  = r.category || 'SIN CATEGORIA';
+      const key  = `${cat} - ${r.destName}`;
+      (groups[key] = groups[key] || []).push(r);
     }
-    if (heatRows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(heatRows), 'Proyeccion');
-    const distRows = [];
-    for (const r of results)
-      for (const d of (r.distribution || []))
-        distRows.push({ 'SKU': r.skuCode, 'Destino': r.destName, 'Proveedor': d.supplierName,
-          'LT': d.leadTime, 'Peso%': Number((d.normalizedWeight*100).toFixed(1)), 'MOQ': d.moq, 'Cantidad': d.quantity });
-    if (distRows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(distRows), 'Distribucion');
-    XLSX.writeFile(wb, `asistente_compra_${new Date().toISOString().slice(0,10)}.xlsx`);
+
+    if (!Object.keys(groups).length) {
+      // Nada que exportar: hoja informativa
+      const ws = XLSX.utils.aoa_to_sheet([['Sin órdenes de compra pendientes']]);
+      XLSX.utils.book_append_sheet(wb, ws, 'Sin pedidos');
+      XLSX.writeFile(wb, `OC_${new Date().toISOString().slice(0,10)}.xlsx`);
+      return;
+    }
+
+    const HDR = ['Código','Nombre','Cantidad','VACÍO','VACÍO','Fecha entrega','VACÍO','VACÍO','VACÍO','VACÍO','VACÍO','Centro'];
+    // Centro SAP por nombre de destino
+    const centroFor = destName => /galapa/i.test(destName) ? '1000' : /bogot/i.test(destName) ? '1001' : '';
+
+    for (const [groupKey, rows] of Object.entries(groups)) {
+      const aoa = [];
+
+      // Reagrupar por proveedor dentro de la categoría
+      const bySupplier = {};
+      for (const r of rows) {
+        for (const d of r.distribution) {
+          const sid = d.supplierId || '_sin_prov';
+          (bySupplier[sid] = bySupplier[sid] || { name: d.supplierName, items: [] });
+          bySupplier[sid].items.push({
+            code: r.skuCode, name: r.skuName,
+            qty: d.quantity,
+            date: dotDate(d.arrivalDate ? DateUtils.toISO(d.arrivalDate) : null),
+            centro: centroFor(r.destName)
+          });
+        }
+        // Si no hay distribución (sin proveedores), incluir el total bajo "sin proveedor"
+        if (!r.distribution.length) {
+          const sid = '_sin_prov';
+          (bySupplier[sid] = bySupplier[sid] || { name: '(sin proveedor)', items: [] });
+          bySupplier[sid].items.push({
+            code: r.skuCode, name: r.skuName, qty: r.suggestedQty,
+            date: '', centro: centroFor(r.destName)
+          });
+        }
+      }
+
+      // Construir bloques por proveedor
+      let first = true;
+      for (const sid of Object.keys(bySupplier)) {
+        const sup = bySupplier[sid];
+        if (!first) aoa.push([]); // separación entre bloques
+        first = false;
+        // Fila COD: / PROV:
+        aoa.push(['COD:', '', 'PROV:', sup.name, '', '', '', '', '', '', '', '']);
+        aoa.push([]); // fila vacía
+        aoa.push([...HDR]); // encabezados
+        for (const it of sup.items) {
+          aoa.push([it.code, it.name, it.qty, '', '', it.date, '', '', '', '', '', it.centro]);
+        }
+      }
+
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = [{wch:14},{wch:22},{wch:10},{wch:8},{wch:8},{wch:14},{wch:8},{wch:8},{wch:8},{wch:8},{wch:8},{wch:10}];
+      // Nombre de hoja: máx 31 chars, sin caracteres inválidos
+      let sheetName = groupKey.toUpperCase().replace(/[\\\\\\/\\?\\*\\[\\]:]/g,'').slice(0,31);
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    }
+
+    XLSX.writeFile(wb, `OC_Programacion_${new Date().toISOString().slice(0,10)}.xlsx`);
   },
+
   generateTemplate(type) {
     const wb = XLSX.utils.book_new();
     const col = n => Array(n).fill({ wch: 22 });

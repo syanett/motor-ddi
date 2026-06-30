@@ -761,18 +761,28 @@ function showSKUDetail(skuId, destId) {
 // ══════════════════════════════════════════════════════
 // ADMIN PEDIDOS EN CAMINO
 // ══════════════════════════════════════════════════════
-function renderAdminOrders(skuFilter='', destFilter=''){
+let _showPastOrders = false;
+function toggleShowPastOrders(){ _showPastOrders = !_showPastOrders; renderAdminOrders(); }
+function renderAdminOrders(skuFilter=null, destFilter=null){
   const db=DB.get();
   const today=DateUtils.today();
-  // Mostrar todos los pedidos, pasados y futuros
+  // Preservar filtros si no se pasan (ej. tras recalcAll o toggle)
+  if(skuFilter===null){const e=document.getElementById('ord-sku');skuFilter=e?e.value:'';}
+  if(destFilter===null){const e=document.getElementById('ord-dest');destFilter=e?e.value:'';}
   let orders=[...db.orders].sort((a,b)=>new Date(a.arrivalDate)-new Date(b.arrivalDate));
   if(skuFilter) orders=orders.filter(o=>o.skuId===skuFilter);
   if(destFilter) orders=orders.filter(o=>o.destId===destFilter);
+  // Filtrar pedidos de fechas pasadas según toggle
+  const pastCount = orders.filter(o=>{const a=DateUtils.parse(o.arrivalDate);return a&&a<today;}).length;
+  if(!_showPastOrders) orders=orders.filter(o=>{const a=DateUtils.parse(o.arrivalDate);return !a||a>=today;});
 
   document.getElementById('content').innerHTML=`
     <div class="section-header">
-      <div><div class="section-title">Pedidos en Camino</div><div class="section-sub">${db.orders.length} pedidos totales · ${orders.length} pendientes de llegada</div></div>
+      <div><div class="section-title">Pedidos en Camino</div><div class="section-sub">${db.orders.length} totales · ${orders.length} mostrados${!_showPastOrders&&pastCount>0?` · ${pastCount} pasados ocultos`:``}</div></div>
       <div class="section-actions">
+        <button class="btn ${_showPastOrders?'btn-primary':'btn-secondary'} btn-sm" onclick="toggleShowPastOrders()" title="Mostrar u ocultar pedidos con fecha anterior a hoy">
+          ${_showPastOrders?'👁 Ocultar pasados':'👁 Mostrar pasados'}${pastCount>0?` (${pastCount})`:''}
+        </button>
         <button class="btn btn-primary btn-sm" onclick="openOrderForm()">+ Nuevo Pedido</button>
         <button class="btn btn-danger btn-sm" onclick="clearAll('orders')" title="Borrar todos los pedidos">✕ Borrar todo</button>
       </div>
@@ -1101,10 +1111,11 @@ function renderHerramientaUpdate() {
             </select>
           </div>
           <div class="form-group">
-            <label>Pedidos ME80AN → Destino</label>
-            <select id="h-dest-orders" class="filter-select" style="width:100%">
-              ${dests.map(d => `<option value="${d.id}" ${d.id===autoGal?'selected':''}>${d.name}</option>`).join('')}
-            </select>
+            <label>Destino de pedidos ME80AN</label>
+            <div style="padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;color:var(--text3)">
+              Automático según columna O:<br>
+              <span style="color:var(--text2)">Centro <strong>1000</strong> → Galapa · Centro <strong>1001</strong> → Bogotá</span>
+            </div>
           </div>
         </div>
       </div>
@@ -1181,9 +1192,8 @@ async function handleHerramientaSelect(file) {
 
   try {
     const opts = {
-      destBog:    document.getElementById('h-dest-bog').value,
-      destGal:    document.getElementById('h-dest-gal').value,
-      destOrders: document.getElementById('h-dest-orders').value
+      destBog: document.getElementById('h-dest-bog').value,
+      destGal: document.getElementById('h-dest-gal').value
     };
     progMsg.textContent = 'Analizando hojas HERRAMIENTA y ME80AN...';
     const res = await Importer.parseHerramientaFile(file, opts);
