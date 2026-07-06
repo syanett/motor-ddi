@@ -517,23 +517,37 @@ function renderPurchaseOrders(destFilter='', catFilter='') {
 
   const cards = results.map(r => {
     const c = Engine.getDDIColor(r.currentDDI);
-    const distRows = r.distribution.map((d, i) => {
-      const dayName = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][d.arrivalDate.getDay()];
-      return `<div style="display:grid;grid-template-columns:1fr 70px 95px 95px;gap:10px;align-items:center;
-                          padding:8px 14px;border-bottom:1px solid var(--border);font-size:12.5px">
-        <div>
-          <span style="font-weight:600">${d.supplierName}</span>
-          <span style="font-size:11px;color:var(--text3);margin-left:8px">LT ${d.leadTime}d · ${fmt(d.normalizedWeight*100,0)}% · MOQ ${d.moq}</span>
-        </div>
-        <div style="font-family:var(--font-mono);font-weight:800;font-size:15px;color:var(--accent);text-align:right">
-          ${fmtInt(d.quantity)}
-        </div>
-        <div style="text-align:right">${orderByHtml(d.orderByDate)}</div>
-        <div style="text-align:right">
-          <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--text2)">${DateUtils.toShort(d.arrivalDate)}</div>
-          <div style="font-size:10px;color:var(--text3)">${dayName} (hoy+LT)</div>
-        </div>
-      </div>`;
+    const distRows = r.distribution.flatMap((d) => {
+      const ships = d.shipments && d.shipments.length ? d.shipments : [];
+      if (!ships.length) {
+        return [`<div style="display:grid;grid-template-columns:1fr 70px 95px 95px;gap:10px;align-items:center;
+                            padding:8px 14px;border-bottom:1px solid var(--border);font-size:12.5px;color:var(--text3)">
+          <div><span style="font-weight:600">${d.supplierName}</span>
+          <span style="font-size:11px;margin-left:8px">LT ${d.leadTime}d · ${fmt(d.normalizedWeight*100,0)}% · MOQ ${d.moq}</span></div>
+          <div style="font-family:var(--font-mono);font-weight:800;font-size:15px;text-align:right">${fmtInt(d.quantity)}</div>
+          <div style="text-align:right">—</div>
+          <div style="text-align:right">Sin capacidad disponible</div>
+        </div>`];
+      }
+      return ships.map((sh, si) => {
+        const dayName = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][sh.arrivalDate.getDay()];
+        const multi = ships.length > 1 ? ` <span style="font-size:10px;color:var(--warning)">· envío ${si+1}/${ships.length}</span>` : '';
+        return `<div style="display:grid;grid-template-columns:1fr 70px 95px 95px;gap:10px;align-items:center;
+                            padding:8px 14px;border-bottom:1px solid var(--border);font-size:12.5px">
+          <div>
+            <span style="font-weight:600">${d.supplierName}</span>${multi}
+            <span style="font-size:11px;color:var(--text3);margin-left:8px">LT ${d.leadTime}d · ${fmt(d.normalizedWeight*100,0)}% · MOQ ${d.moq}</span>
+          </div>
+          <div style="font-family:var(--font-mono);font-weight:800;font-size:15px;color:var(--accent);text-align:right">
+            ${fmtInt(sh.qty)}
+          </div>
+          <div style="text-align:right">${orderByHtml(sh.orderByDate)}</div>
+          <div style="text-align:right">
+            <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--text2)">${DateUtils.toShort(sh.arrivalDate)}</div>
+            <div style="font-size:10px;color:var(--text3)">${dayName} (hoy+LT)</div>
+          </div>
+        </div>`;
+      });
     }).join('');
 
     const noSuppliers = r.distribution.length === 0
@@ -636,25 +650,40 @@ function showSKUDetail(skuId, destId) {
   // ── ORDEN DE COMPRA (sección principal) ──
   let purchaseSection = '';
   if (r.suggestedQty > 0) {
-    const distRows = r.distribution.map((d, idx) => {
-      const dayName = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][d.arrivalDate.getDay()];
-      return `<div style="display:grid;grid-template-columns:1fr 70px 95px 90px;gap:10px;align-items:center;
-                          padding:10px 14px;border-bottom:1px solid var(--border);
-                          ${idx===0?'background:rgba(59,130,246,.06)':''}">
-        <div>
-          <div style="font-size:13px;font-weight:600">${d.supplierName}</div>
-          <div style="font-size:11px;color:var(--text3)">LT: ${d.leadTime}d · MOQ: ${d.moq} · ${fmt(d.normalizedWeight*100,1)}%</div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-family:var(--font-mono);font-size:17px;font-weight:800;color:var(--accent)">${fmtInt(d.quantity)}</div>
-          <div style="font-size:10px;color:var(--text3)">uds</div>
-        </div>
-        <div style="text-align:right">${orderByHtml(d.orderByDate)}</div>
-        <div style="text-align:right">
-          <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--text2)">${DateUtils.toShort(d.arrivalDate)}</div>
-          <div style="font-size:10px;color:var(--text3)">${dayName} (hoy+LT)</div>
-        </div>
-      </div>`;
+    const distRows = r.distribution.flatMap((d, idx) => {
+      const ships = d.shipments && d.shipments.length ? d.shipments : [];
+      if (!ships.length) {
+        return [`<div style="display:grid;grid-template-columns:1fr 70px 95px 90px;gap:10px;align-items:center;
+                            padding:10px 14px;border-bottom:1px solid var(--border);color:var(--text3)">
+          <div><div style="font-size:13px;font-weight:600">${d.supplierName}</div>
+          <div style="font-size:11px">LT: ${d.leadTime}d · MOQ: ${d.moq} · ${fmt(d.normalizedWeight*100,1)}%</div></div>
+          <div style="text-align:right"><div style="font-family:var(--font-mono);font-size:17px;font-weight:800">${fmtInt(d.quantity)}</div><div style="font-size:10px">uds</div></div>
+          <div style="text-align:right">—</div>
+          <div style="text-align:right">Sin capacidad</div>
+        </div>`];
+      }
+      return ships.map((sh, si) => {
+        const dayName = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][sh.arrivalDate.getDay()];
+        const multi = ships.length > 1 ? `<div style="font-size:10px;color:var(--warning)">envío ${si+1}/${ships.length}</div>` : '';
+        return `<div style="display:grid;grid-template-columns:1fr 70px 95px 90px;gap:10px;align-items:center;
+                            padding:10px 14px;border-bottom:1px solid var(--border);
+                            ${idx===0&&si===0?'background:rgba(59,130,246,.06)':''}">
+          <div>
+            <div style="font-size:13px;font-weight:600">${d.supplierName}</div>
+            <div style="font-size:11px;color:var(--text3)">LT: ${d.leadTime}d · MOQ: ${d.moq} · ${fmt(d.normalizedWeight*100,1)}%</div>
+            ${multi}
+          </div>
+          <div style="text-align:right">
+            <div style="font-family:var(--font-mono);font-size:17px;font-weight:800;color:var(--accent)">${fmtInt(sh.qty)}</div>
+            <div style="font-size:10px;color:var(--text3)">uds</div>
+          </div>
+          <div style="text-align:right">${orderByHtml(sh.orderByDate)}</div>
+          <div style="text-align:right">
+            <div style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--text2)">${DateUtils.toShort(sh.arrivalDate)}</div>
+            <div style="font-size:10px;color:var(--text3)">${dayName} (hoy+LT)</div>
+          </div>
+        </div>`;
+      });
     }).join('');
 
     purchaseSection = `

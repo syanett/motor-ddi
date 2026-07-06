@@ -338,41 +338,107 @@ const Engine = {
    * - Resuelve conflictos: ningún proveedor entrega el mismo día que otro del mismo SKU
    *   Si dos coinciden, el segundo se desplaza +1 día (y así sucesivamente)
    */
-  calcSupplierDistribution(skuId, destId, qtyNeeded, stockOutDate = null) {
+  /** Redondea hacia arriba a la decena más cercana (preferencia de compra en decenas) */
+  roundToTen(qty) {
+    return qty % 10 === 0 ? qty : Math.ceil(qty / 10) * 10;
+  },
+
+  /**
+   * Calcula las cantidades por proveedor para un SKU (SIN fecha de entrega).
+   * Aplica redondeo a MOQ y luego a la decena más cercana (hacia arriba).
+   * Las fechas se asignan después, globalmente, vía scheduleDeliveries().
+   */
+  calcSupplierQuantities(skuId, destId, qtyNeeded) {
     if (qtyNeeded <= 0) return [];
     const suppliers = this.normalizeSupplierWeights(skuId, destId);
     if (!suppliers.length) return [];
-    const db    = DB.get();
+    const db = DB.get();
+    return suppliers.map(e => {
+      const sup = db.suppliers.find(s => s.id === e.supplierId);
+      const moq = e.moq || 1;
+      const raw = qtyNeeded * e.normalizedWeight;
+      const moqQty = Math.ceil(raw / moq) * moq;
+      const quantity = this.roundToTen(moqQty);
+      return {
+        supplierId: e.supplierId, supplierName: sup?.name || e.supplierId,
+        leadTime: e.leadTime || 0, weight: e.weight || 0,
+        normalizedWeight: e.normalizedWeight, moq, quantity
+      };
+    });
+  },
+
+  /**
+   * Programa las fechas de entrega de TODAS las líneas de compra pendientes a la vez.
+   *
+   * Reglas:
+   *  - Tope de 500 u/día por PROVEEDOR + CATEGORÍA (categorías distintas no comparten tope,
+   *    incluso para el mismo proveedor; dos proveedores de categorías distintas sí pueden
+   *    coincidir en el mismo día sin restricción).
+   *  - Holgura de ±3 días sobre la fecha nominal (hoy + lead time) de cada línea.
+   *  - Preferencia por repartir en 2-3 semanas dentro del mes en vez de saturar un solo día:
+   *    para cada línea se intenta primero la semana nominal (con holgura), y si no cabe todo
+   *    el remanente pasa a la semana siguiente, y así sucesivamente.
+   *
+   * pendingLines: [{ skuId, destId, category, supplierId, supplierName, leadTime, moq, quantity, nominalDate }]
+   * Retorna Map key=`${skuId}|${destId}|${supplierId}` -> shipments: [{ qty, date }]
+   */
+  scheduleDeliveries(pendingLines) {
+    const DAILY_CAP = 500;
+    const SLACK = 3;
     const today = DateUtils.today();
 
-    // Paso 1: calcular cantidades y fecha de llegada natural
-    let entries = suppliers
-      .map(e => {
-        const sup = db.suppliers.find(s => s.id === e.supplierId);
-        const moq = e.moq || 1;
-        return {
-          supplierId:       e.supplierId,
-          supplierName:     sup?.name || e.supplierId,
-          leadTime:         e.leadTime || 0,
-          weight:           e.weight || 0,
-          normalizedWeight: e.normalizedWeight,
-          moq,
-          quantity:    Math.ceil(qtyNeeded * e.normalizedWeight / moq) * moq,
-          arrivalDate: DateUtils.addDays(today, e.leadTime || 0),
-          // Pedir antes de = fecha de quiebre − lead time
-          orderByDate: stockOutDate ? DateUtils.addDays(stockOutDate, -(e.leadTime || 0)) : null
-        };
-      })
-      .sort((a, b) => a.leadTime - b.leadTime || a.supplierName.localeCompare(b.supplierName));
+    // Agrupar por proveedor + categoría (tope independiente por grupo)
+    const groups = {};
+    for (const line of pendingLines) {
+      const key = `${line.supplierId}::${line.category || ''}`;
+      (groups[key] = groups[key] || []).push(line);
+    }
 
-    // Paso 2: resolver conflictos de fecha — cada proveedor en día distinto
-    for (let i = 1; i < entries.length; i++) {
-      if (entries[i].arrivalDate <= entries[i - 1].arrivalDate) {
-        entries[i].arrivalDate = DateUtils.addDays(entries[i - 1].arrivalDate, 1);
+    const resultMap = new Map();
+
+    for (const groupLines of Object.values(groups)) {
+      const dayLoad = {};
+      const iso    = d => DateUtils.toISO(d);
+      const loadOn = d => dayLoad[iso(d)] || 0;
+      const addLoad = (d, q) => { dayLoad[iso(d)] = loadOn(d) + q; };
+
+      // Procesar primero las líneas con lead time más corto (más urgentes)
+      const sorted = [...groupLines].sort((a, b) => a.nominalDate - b.nominalDate);
+
+      for (const line of sorted) {
+        const shipments = [];
+        let remaining = line.quantity;
+        let week = 0;
+
+        while (remaining > 0 && week < 12) { // límite de seguridad: 12 semanas
+          const base = DateUtils.addDays(line.nominalDate, week * 7);
+
+          // Candidatos dentro de esta "semana" con holgura ±3 días
+          const offsets = [0];
+          for (let o = 1; o <= SLACK; o++) { offsets.push(o); offsets.push(-o); }
+
+          let bestDay = null, bestCap = -1;
+          for (const off of offsets) {
+            const d = DateUtils.addDays(base, off);
+            if (d < today) continue;
+            const cap = DAILY_CAP - loadOn(d);
+            if (cap > bestCap) { bestCap = cap; bestDay = d; }
+          }
+
+          if (bestDay && bestCap > 0) {
+            const chunk = Math.min(remaining, bestCap);
+            shipments.push({ qty: chunk, date: new Date(bestDay) });
+            addLoad(bestDay, chunk);
+            remaining -= chunk;
+          }
+          week++;
+        }
+
+        resultMap.set(`${line.skuId}|${line.destId}|${line.supplierId}`, shipments);
       }
     }
 
-    return entries;
+    return resultMap;
   },
 
   /**
@@ -424,7 +490,12 @@ const Engine = {
     });
   },
 
-  calcRow(skuId, destId) {
+  /**
+   * Fase 1: calcula todos los indicadores de un SKU+Destino EXCEPTO las fechas
+   * de entrega de la compra sugerida (esas se asignan globalmente en calcAll,
+   * después de conocer las necesidades de TODOS los SKUs).
+   */
+  calcRowBase(skuId, destId) {
     const db   = DB.get();
     const sku  = db.skus.find(s => s.id === skuId);
     const dest = db.destinations.find(d => d.id === destId);
@@ -464,10 +535,21 @@ const Engine = {
 
     const compraBruta = targetInv - projectedInv;
     const stockOutDate = this.calcStockOutDate(skuId, destId);
-    const distribution = this.calcSupplierDistribution(skuId, destId, Math.max(0, compraBruta), stockOutDate);
-    const suggestedQty = distribution.length
-      ? distribution.reduce((s, d) => s + d.quantity, 0)
-      : (compraBruta > 0 ? Math.ceil(compraBruta) : 0);
+
+    // Cantidades por proveedor (sin fecha aún) + líneas pendientes para el programador global
+    const supplierQtys = this.calcSupplierQuantities(skuId, destId, Math.max(0, compraBruta));
+    const pendingLines = supplierQtys
+      .filter(sq => sq.quantity > 0)
+      .map(sq => ({
+        skuId, destId, category: sku.category,
+        supplierId: sq.supplierId, supplierName: sq.supplierName,
+        leadTime: sq.leadTime, moq: sq.moq, quantity: sq.quantity,
+        nominalDate: DateUtils.addDays(today, sq.leadTime)
+      }));
+
+    const suggestedQty = supplierQtys.length
+      ? supplierQtys.reduce((s, sq) => s + sq.quantity, 0)
+      : (compraBruta > 0 ? this.roundToTen(Math.ceil(compraBruta)) : 0);
 
     const suppliers   = this.normalizeSupplierWeights(skuId, destId);
     const avgLeadTime = suppliers.length
@@ -500,7 +582,9 @@ const Engine = {
       compraBruta: Math.round(compraBruta),
       suggestedQty, projectedDDI,
       currentDDI, ddiColor,
-      distribution,
+      distribution: [], // se completa en fase 3 (calcAll)
+      _supplierQtys: supplierQtys,
+      _pendingLines: pendingLines,
       weeklyProjection, firstRiskWeek, firstCriticalWeek,
       nxtMonths,
       stockOutDate,
@@ -509,13 +593,46 @@ const Engine = {
   },
 
   calcAll() {
-    const db = DB.get(), results = [];
-    for (const sku of db.skus)
+    const db = DB.get();
+    const rows = [];
+    const allPendingLines = [];
+
+    // Fase 1: calcular todos los indicadores excepto fechas de entrega
+    for (const sku of db.skus) {
       for (const dest of db.destinations.filter(d => d.active)) {
-        const row = this.calcRow(sku.id, dest.id);
-        if (row) results.push(row);
+        const row = this.calcRowBase(sku.id, dest.id);
+        if (!row) continue;
+        allPendingLines.push(...row._pendingLines);
+        rows.push(row);
       }
-    return results;
+    }
+
+    // Fase 2: programar entregas globalmente (tope 500u/día por proveedor+categoría,
+    // holgura ±3 días, preferencia de repartir en 2-3 semanas)
+    const shipmentsMap = this.scheduleDeliveries(allPendingLines);
+
+    // Fase 3: ensamblar distribution final con fechas y orderByDate por envío
+    for (const row of rows) {
+      row.distribution = row._supplierQtys.map(sq => {
+        const key = `${row.skuId}|${row.destId}|${sq.supplierId}`;
+        const rawShipments = shipmentsMap.get(key) || [];
+        const shipments = rawShipments.map(sh => ({
+          qty: sh.qty,
+          arrivalDate: sh.date,
+          orderByDate: DateUtils.addDays(sh.date, -sq.leadTime)
+        }));
+        return {
+          supplierId: sq.supplierId, supplierName: sq.supplierName,
+          leadTime: sq.leadTime, weight: sq.weight, normalizedWeight: sq.normalizedWeight,
+          moq: sq.moq, quantity: sq.quantity,
+          shipments
+        };
+      });
+      delete row._supplierQtys;
+      delete row._pendingLines;
+    }
+
+    return rows;
   }
 };
 
@@ -948,12 +1065,15 @@ const Exporter = {
         for (const d of r.distribution) {
           const sid = d.supplierId || '_sin_prov';
           (bySupplier[sid] = bySupplier[sid] || { name: d.supplierName, code: d.supplierId || '', items: [] });
-          bySupplier[sid].items.push({
-            code: r.skuCode, name: r.skuName,
-            qty: d.quantity,
-            date: dotDate(d.arrivalDate ? DateUtils.toISO(d.arrivalDate) : null),
-            centro: centroFor(r.destName)
-          });
+          const ships = d.shipments && d.shipments.length ? d.shipments : [{ qty: d.quantity, arrivalDate: null }];
+          for (const sh of ships) {
+            bySupplier[sid].items.push({
+              code: r.skuCode, name: r.skuName,
+              qty: sh.qty,
+              date: dotDate(sh.arrivalDate ? DateUtils.toISO(sh.arrivalDate) : null),
+              centro: centroFor(r.destName)
+            });
+          }
         }
         // Si no hay distribución (sin proveedores), incluir el total bajo "sin proveedor"
         if (!r.distribution.length) {
