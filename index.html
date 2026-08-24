@@ -276,13 +276,13 @@ function renderDashboard(){
         ${DDI_COLORS.map(b=>{ const count=bandCounts[b.label]||0; const pct=results.length?(count/results.length*100):0; return count>0?`<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><div style="width:90px;font-size:11px;color:var(--text3)">${b.label}</div><div style="flex:1;height:16px;background:var(--bg3);border-radius:3px;overflow:hidden;border:1px solid var(--border)"><div style="width:${pct}%;height:100%;background:${b.color};display:flex;align-items:center;padding:0 5px">${pct>12?`<span style="font-size:10px;font-family:var(--font-mono);color:white;font-weight:600">${count}</span>`:''}</div></div><div style="font-family:var(--font-mono);font-size:11px;width:28px;text-align:right;color:${b.color}">${count}</div></div>`:''; }).join('')}
       </div></div>
       <div class="card"><div class="card-header"><h3>Top alertas + primera semana en riesgo</h3></div><div class="card-body">
-        ${results.filter(r=>r.suggestedQty>0).sort((a,b)=>(a.currentDDI??999)-(b.currentDDI??999)).slice(0,8).map(r=>{ const c=Engine.getDDIColor(r.currentDDI); const risk=r.firstCriticalWeek?`<span style="font-size:10px;color:var(--danger);font-weight:700">⚠ ${r.firstCriticalWeek.label}</span>`:r.firstRiskWeek?`<span style="font-size:10px;color:var(--warning)">⚡ ${r.firstRiskWeek.label}</span>`:''; return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><div class="ddi-dot" style="background:${c.color}"></div><div style="flex:1"><div style="font-size:12px;font-weight:600">${r.skuCode} <span style="font-size:10px;color:var(--text3)">${r.destName}</span></div><div>${risk}</div></div><div style="font-family:var(--font-mono);font-size:12px;color:${c.color};font-weight:700">${fmt(r.currentDDI)}d</div><div style="font-family:var(--font-mono);font-size:11px;color:var(--accent)">+${fmtInt(r.suggestedQty)}</div></div>`; }).join('')||'<div style="color:var(--text3);text-align:center;padding:20px">✓ Sin alertas</div>'}
+        ${results.filter(r=>r.suggestedQty>0).sort((a,b)=>(a.currentDDI??999)-(b.currentDDI??999)).slice(0,8).map(r=>{ const c=Engine.getDDIColor(r.currentDDI); const risk=r.firstCriticalWeek?`<span style="font-size:10px;color:var(--danger);font-weight:700">⚠ ${r.firstCriticalWeek.label}</span>`:r.firstRiskWeek?`<span style="font-size:10px;color:var(--warning)">⚡ ${r.firstRiskWeek.label}</span>`:''; return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><div class="ddi-dot" style="background:${c.color}"></div><div style="flex:1"><div style="font-size:12px;font-weight:600">${r.skuName} <span style="font-size:10px;color:var(--text3)">${r.destName}</span></div><div>${risk}</div></div><div style="font-family:var(--font-mono);font-size:12px;color:${c.color};font-weight:700">${fmt(r.currentDDI)}d</div><div style="font-family:var(--font-mono);font-size:11px;color:var(--accent)">+${fmtInt(r.suggestedQty)}</div></div>`; }).join('')||'<div style="color:var(--text3);text-align:center;padding:20px">✓ Sin alertas</div>'}
       </div></div>
     </div>
     <div class="card"><div class="card-header"><h3>Próximos pedidos a llegar</h3><button class="btn btn-ghost btn-sm" onclick="navigateTo('admin-orders')">Ver todos →</button></div><div class="card-body" style="padding:0">
       <table style="width:100%;border-collapse:collapse;font-size:12.5px">
         <thead><tr style="background:var(--bg3)"><th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border)">SKU</th><th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border)">Destino</th><th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border)">Fecha Llegada</th><th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border)">Días</th><th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border)">Cantidad</th><th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border)">Ref.</th></tr></thead>
-        <tbody>${db.orders.filter(o=>{const a=DateUtils.parse(o.arrivalDate);return a&&a>=today;}).sort((a,b)=>new Date(a.arrivalDate)-new Date(b.arrivalDate)).slice(0,10).map(o=>{ const sku=db.skus.find(s=>s.id===o.skuId); const dest=db.destinations.find(d=>d.id===o.destId); const arr2=DateUtils.parse(o.arrivalDate); const days=arr2?DateUtils.diffDays(today,arr2):null; const daysTxt2=days===null?'--':(days<0?('hace '+Math.abs(days)+'d'):(days+'d')); const dc=days===null?'var(--text3)':days<=3?'var(--danger)':days<=7?'var(--warning)':'var(--success)'; return `<tr style="border-bottom:1px solid var(--border)"><td style="padding:8px 12px;font-weight:700">${sku?.code||o.skuId}</td><td style="padding:8px 12px"><span class="chip">${dest?.name||o.destId}</span></td><td style="padding:8px 12px;font-family:var(--font-mono)">${o.arrivalDate}</td><td style="padding:8px 12px"><span style="font-family:var(--font-mono);font-weight:700;color:${dc}">${daysTxt2}</span></td><td style="padding:8px 12px;font-family:var(--font-mono);color:var(--accent);font-weight:700">${fmtInt(o.qty)}</td><td style="padding:8px 12px;color:var(--text3)">${o.notes||'—'}</td></tr>`; }).join('')||'<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--text3)">Sin pedidos futuros registrados</td></tr>'}</tbody>
+        <tbody>${db.orders.filter(o=>{const a=DateUtils.parse(o.arrivalDate);return a&&a>=today;}).sort((a,b)=>new Date(a.arrivalDate)-new Date(b.arrivalDate)).slice(0,10).map(o=>{ const sku=db.skus.find(s=>s.id===o.skuId); const dest=db.destinations.find(d=>d.id===o.destId); const arr2=DateUtils.parse(o.arrivalDate); const days=arr2?DateUtils.diffDays(today,arr2):null; const daysTxt2=days===null?'--':(days<0?('hace '+Math.abs(days)+'d'):(days+'d')); const dc=days===null?'var(--text3)':days<=3?'var(--danger)':days<=7?'var(--warning)':'var(--success)'; return `<tr style="border-bottom:1px solid var(--border)"><td style="padding:8px 12px;font-weight:700">${sku?.name||o.skuId}<br><span style="font-size:10px;color:var(--text3);font-weight:400">${sku?.code||''}</span></td><td style="padding:8px 12px"><span class="chip">${dest?.name||o.destId}</span></td><td style="padding:8px 12px;font-family:var(--font-mono)">${o.arrivalDate}</td><td style="padding:8px 12px"><span style="font-family:var(--font-mono);font-weight:700;color:${dc}">${daysTxt2}</span></td><td style="padding:8px 12px;font-family:var(--font-mono);color:var(--accent);font-weight:700">${fmtInt(o.qty)}</td><td style="padding:8px 12px;color:var(--text3)">${o.notes||'—'}</td></tr>`; }).join('')||'<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--text3)">Sin pedidos futuros registrados</td></tr>'}</tbody>
       </table>
     </div></div>`;
 }
@@ -362,7 +362,7 @@ function buildHeatmapTable(results, weeks) {
         const todayC = Engine.getDDIColor(r.currentDDI);
         return `<tr>
           <td class="td-sku" onclick="showSKUDetail('${r.skuId}','${r.destId}')" style="cursor:pointer">
-            ${r.skuCode}<br><span style="font-size:10px;color:var(--text3);font-weight:400">${r.description.slice(0,20)}</span>
+            ${r.skuName}<br><span style="font-size:10px;color:var(--text3);font-weight:400">${r.skuCode}</span>
           </td>
           <td class="td-dest"><span class="chip" style="font-size:10px">${r.destName}</span></td>
           <td style="padding:0"><div class="heat-cell" style="background:${todayC.color}33;color:${todayC.color}">
@@ -373,7 +373,7 @@ function buildHeatmapTable(results, weeks) {
             const c = Engine.getDDIColor(w.projDDI);
             const hasOrder = w.ordersThisWeek && w.ordersThisWeek.length > 0;
             const mbStr = Object.entries(w.monthBreakdown||{}).map(([m,v])=>`${m}:${v.days}d/${fmt(v.demand,1)}u`).join(' · ');
-            const tipData = JSON.stringify({sku:r.skuCode,dest:r.destName,week:w.labelFull,projInv:w.projInv,projDDI:w.projDDI!==null?Number(w.projDDI.toFixed(1)):null,weeklyDemand:w.weeklyDemand,orders:w.ordersThisWeek,target:r.targetDDI,status:c.label,monthBreakdown:mbStr}).replace(/"/g,'&quot;');
+            const tipData = JSON.stringify({sku:r.skuName,dest:r.destName,week:w.labelFull,projInv:w.projInv,projDDI:w.projDDI!==null?Number(w.projDDI.toFixed(1)):null,weeklyDemand:w.weeklyDemand,orders:w.ordersThisWeek,target:r.targetDDI,status:c.label,monthBreakdown:mbStr}).replace(/"/g,'&quot;');
             return `<td style="padding:0" onmouseenter="showHeatTip(event,'${tipData}')" onmouseleave="hideHeatTip()">
               <div class="heat-cell ${wi===0?'col-today':''}" style="background:${c.color};color:white">
                 ${hasOrder?'<div class="order-dot"></div>':''}
@@ -432,7 +432,7 @@ function hideHeatTip() { document.getElementById('heat-tooltip').style.display='
 // ══════════════════════════════════════════════════════
 function renderReplenishment(query='',destFilter='',catFilter=''){
   const db=DB.get(); let results=[...cachedResults];
-  if(query){ const q=query.toLowerCase(); results=results.filter(r=>r.skuCode.toLowerCase().includes(q)||r.description.toLowerCase().includes(q)||r.destName.toLowerCase().includes(q)); }
+  if(query){ const q=query.toLowerCase(); results=results.filter(r=>r.skuName.toLowerCase().includes(q)||r.skuCode.toLowerCase().includes(q)||r.description.toLowerCase().includes(q)||r.destName.toLowerCase().includes(q)); }
   if(destFilter) results=results.filter(r=>r.destId===destFilter);
   if(catFilter) results=results.filter(r=>r.category===catFilter);
   const cats=[...new Set(cachedResults.map(r=>r.category).filter(Boolean))];
@@ -464,7 +464,7 @@ function renderReplenishment(query='',destFilter='',catFilter=''){
         const c=Engine.getDDIColor(r.currentDDI);
         const riskHtml=r.firstCriticalWeek?`<span style="color:var(--danger);font-size:10px;font-weight:700">⚠ ${r.firstCriticalWeek.label}</span>`:r.firstRiskWeek?`<span style="color:var(--warning);font-size:10px">⚡ ${r.firstRiskWeek.label}</span>`:`<span style="color:var(--text3);font-size:10px">—</span>`;
         return `<tr class="${r.firstCriticalWeek?'ddi-critical':r.firstRiskWeek?'ddi-vlow':''}">
-          <td class="col-sticky" style="line-height:1.3"><span style="font-weight:700">${r.skuCode}</span><br><span style="font-size:10px;color:var(--text3)">${r.destName}</span></td>
+          <td class="col-sticky" style="line-height:1.3"><span style="font-weight:700">${r.skuName}</span><br><span style="font-size:10px;color:var(--text3)">${r.skuCode} · ${r.destName}</span></td>
           <td style="font-family:var(--font-mono)">${fmtInt(r.currentInv)}</td>
           <td style="font-family:var(--font-mono);color:var(--accent)">${fmt(r.dailyDemand,1)}</td>
           <td style="font-family:var(--font-mono);color:var(--text2)">${fmtInt(r.weeklyDemand)}</td>
@@ -560,8 +560,8 @@ function renderPurchaseOrders(destFilter='', catFilter='') {
         <div style="display:flex;align-items:center;gap:10px">
           <div class="ddi-dot" style="background:${c.color}"></div>
           <div>
-            <span style="font-size:14px;font-weight:800">${r.skuCode}</span>
-            <span style="font-size:12px;color:var(--text3);margin-left:6px">${r.description}</span>
+            <span style="font-size:14px;font-weight:800">${r.skuName}</span>
+            <span style="font-size:12px;color:var(--text3);margin-left:6px">${r.skuCode} · ${r.description}</span>
             <span class="chip" style="margin-left:8px;font-size:10px">${r.destName}</span>
           </div>
         </div>
@@ -622,7 +622,7 @@ function renderSuppliersView(){
   const supplierMap={};
   for(const r of results){ for(const d of(r.distribution||[])){ if(!d.quantity) continue; if(!supplierMap[d.supplierId]){ supplierMap[d.supplierId]={supplierId:d.supplierId,supplierName:d.supplierName,totalQty:0,lines:[]}; } supplierMap[d.supplierId].totalQty+=d.quantity; supplierMap[d.supplierId].lines.push({skuCode:r.skuCode,skuName:r.skuName,destName:r.destName,leadTime:d.leadTime,weight:d.normalizedWeight,qty:d.quantity}); } }
   const suppliers=Object.values(supplierMap).sort((a,b)=>b.totalQty-a.totalQty);
-  document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">Por Proveedor</div><div class="section-sub">${suppliers.length} proveedores con pedidos</div></div></div>${suppliers.length===0?'<div class="empty-state"><div class="empty-icon">○</div><div class="empty-title">Sin compras sugeridas</div></div>':suppliers.map(s=>`<div class="card" style="margin-bottom:16px"><div class="card-header"><div style="display:flex;align-items:center;gap:12px"><div style="width:36px;height:36px;background:var(--accent-glow);border:1px solid var(--accent);border-radius:var(--radius);display:flex;align-items:center;justify-content:center">◎</div><div><div style="font-size:14px;font-weight:700">${s.supplierName}</div><div style="font-size:11px;color:var(--text3);font-family:var(--font-mono)">${s.lines.length} líneas · ${fmtInt(s.totalQty)} unidades</div></div></div></div><div style="overflow-x:auto"><table><thead><tr><th>SKU</th><th>Destino</th><th>Lead Time</th><th>Peso Norm.</th><th>Cantidad</th></tr></thead><tbody>${s.lines.map(l=>`<tr><td class="bold">${l.skuCode}</td><td><span class="chip">${l.destName}</span></td><td class="mono">${l.leadTime}d</td><td class="mono">${fmt(l.weight*100,1)}%</td><td class="mono" style="color:var(--accent);font-weight:700">${fmtInt(l.qty)}</td></tr>`).join('')}</tbody></table></div></div>`).join('')}`;
+  document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">Por Proveedor</div><div class="section-sub">${suppliers.length} proveedores con pedidos</div></div></div>${suppliers.length===0?'<div class="empty-state"><div class="empty-icon">○</div><div class="empty-title">Sin compras sugeridas</div></div>':suppliers.map(s=>`<div class="card" style="margin-bottom:16px"><div class="card-header"><div style="display:flex;align-items:center;gap:12px"><div style="width:36px;height:36px;background:var(--accent-glow);border:1px solid var(--accent);border-radius:var(--radius);display:flex;align-items:center;justify-content:center">◎</div><div><div style="font-size:14px;font-weight:700">${s.supplierName}</div><div style="font-size:11px;color:var(--text3);font-family:var(--font-mono)">${s.lines.length} líneas · ${fmtInt(s.totalQty)} unidades</div></div></div></div><div style="overflow-x:auto"><table><thead><tr><th>SKU</th><th>Destino</th><th>Lead Time</th><th>Peso Norm.</th><th>Cantidad</th></tr></thead><tbody>${s.lines.map(l=>`<tr><td class="bold">${l.skuName}<br><span style="font-size:10px;color:var(--text3);font-weight:400">${l.skuCode}</span></td><td><span class="chip">${l.destName}</span></td><td class="mono">${l.leadTime}d</td><td class="mono">${fmt(l.weight*100,1)}%</td><td class="mono" style="color:var(--accent);font-weight:700">${fmtInt(l.qty)}</td></tr>`).join('')}</tbody></table></div></div>`).join('')}`;
 }
 
 // ══════════════════════════════════════════════════════
@@ -631,7 +631,7 @@ function renderSuppliersView(){
 function showSKUDetail(skuId, destId) {
   const r = cachedResults.find(r => r.skuId===skuId && r.destId===destId);
   if (!r) return;
-  document.getElementById('sku-modal-title').textContent = `${r.skuCode} — ${r.destName}`;
+  document.getElementById('sku-modal-title').textContent = `${r.skuName} — ${r.destName}`;
 
   // ── ALERTA DE RIESGO ──
   const riskMsg = r.firstCriticalWeek
@@ -692,7 +692,7 @@ function showSKUDetail(skuId, destId) {
         <div style="background:var(--accent);padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
           <div>
             <div style="font-size:14px;font-weight:800;color:white">🛒 ORDEN DE COMPRA</div>
-            <div style="font-size:11px;color:rgba(255,255,255,.75)">${r.skuCode} — ${r.destName}</div>
+            <div style="font-size:11px;color:rgba(255,255,255,.75)">${r.skuCode} · ${r.destName}</div>
           </div>
           <div style="text-align:right">
             <div style="font-family:var(--font-mono);font-size:28px;font-weight:900;color:white;line-height:1">${fmtInt(r.suggestedQty)}</div>
@@ -819,7 +819,7 @@ function renderAdminOrders(skuFilter=null, destFilter=null){
     <div class="toolbar">
       <select class="filter-select" id="ord-sku" onchange="renderAdminOrders(this.value,document.getElementById('ord-dest').value)">
         <option value="">Todos los SKUs</option>
-        ${db.skus.map(s=>`<option value="${s.id}" ${skuFilter===s.id?'selected':''}>${s.code}</option>`).join('')}
+        ${db.skus.map(s=>`<option value="${s.id}" ${skuFilter===s.id?'selected':''}>${s.name} (${s.code})</option>`).join('')}
       </select>
       <select class="filter-select" id="ord-dest" onchange="renderAdminOrders(document.getElementById('ord-sku').value,this.value)">
         <option value="">Todos los destinos</option>
@@ -842,7 +842,7 @@ function renderAdminOrders(skuFilter=null, destFilter=null){
           const daysTxt=days===null?'fecha?':(days<0?`hace ${Math.abs(days)}d`:`${days}d`);
           const dc=days===null?'var(--text3)':days<0?'var(--text3)':days<=3?'var(--danger)':days<=7?'var(--warning)':'var(--success)';
           return `<tr>
-            <td class="bold">${sku?.code||o.skuId}</td>
+            <td class="bold">${sku?.name||o.skuId}<br><span style="font-size:10px;color:var(--text3);font-weight:400">${sku?.code||''}</span></td>
             <td><span class="chip">${dest?.name||o.destId}</span></td>
             <td style="color:var(--text3)">${sup?.name||o.supplierId||'—'}</td>
             <td><span class="order-date-badge">📅 ${o.arrivalDate}</span></td>
@@ -870,7 +870,7 @@ function openOrderForm(order=null){
   document.getElementById('form-modal-body').innerHTML=`
     <div class="form-grid">
       <div class="form-group"><label>SKU *</label>
-        <select id="f-osku"><option value="">— Seleccionar —</option>${db.skus.map(s=>`<option value="${s.id}" ${order?.skuId===s.id?'selected':''}>${s.code} — ${s.name}</option>`).join('')}</select>
+        <select id="f-osku"><option value="">— Seleccionar —</option>${db.skus.map(s=>`<option value="${s.id}" ${order?.skuId===s.id?'selected':''}>${s.name} (${s.code})</option>`).join('')}</select>
       </div>
       <div class="form-group"><label>Destino *</label>
         <select id="f-odest"><option value="">— Seleccionar —</option>${db.destinations.map(d=>`<option value="${d.id}" ${order?.destId===d.id?'selected':''}>${d.name}</option>`).join('')}</select>
@@ -902,7 +902,7 @@ function deleteOrder(id){
 // ══════════════════════════════════════════════════════
 // ADMIN SKUs, DESTINOS, PROVEEDORES, MATRIZ, INVENTARIO
 // ══════════════════════════════════════════════════════
-function renderAdminSKUs(){ const db=DB.get(); document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">SKUs</div><div class="section-sub">${db.skus.length} productos</div></div><div class="section-actions"><button class="btn btn-primary btn-sm" onclick="openSKUForm()">+ Nuevo SKU</button><button class="btn btn-danger btn-sm" onclick="clearAll('skus')" title="Borrar todos los registros">✕ Borrar todo</button></div></div><div class="table-wrap"><table><thead><tr><th>Código</th><th>Nombre</th><th>Categoría</th><th>DDI Obj.</th><th>MOQ</th><th>Estado</th><th></th></tr></thead><tbody>${db.skus.length?db.skus.map(s=>`<tr><td class="bold">${s.code}</td><td>${s.name}</td><td><span class="chip">${s.category}</span></td><td class="mono">${s.targetDDI}d</td><td class="mono">${s.moq}</td><td><span class="chip ${s.active?'chip-success':'chip-danger'}">${s.active?'Activo':'Inactivo'}</span></td><td style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm btn-icon" onclick='openSKUForm(${JSON.stringify(s)})'>✎</button><button class="btn btn-danger btn-sm btn-icon" onclick="deleteSKU('${s.id}')">✕</button></td></tr>`).join(''):`<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">▦</div><div class="empty-title">Sin SKUs</div></div></td></tr>`}</tbody></table></div>`; }
+function renderAdminSKUs(){ const db=DB.get(); document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">SKUs</div><div class="section-sub">${db.skus.length} productos</div></div><div class="section-actions"><button class="btn btn-primary btn-sm" onclick="openSKUForm()">+ Nuevo SKU</button><button class="btn btn-danger btn-sm" onclick="clearAll('skus')" title="Borrar todos los registros">✕ Borrar todo</button></div></div><div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Código</th><th>Categoría</th><th>DDI Obj.</th><th>MOQ</th><th>Estado</th><th></th></tr></thead><tbody>${db.skus.length?db.skus.map(s=>`<tr><td class="bold">${s.name}</td><td style="font-family:var(--font-mono);color:var(--text3)">${s.code}</td><td><span class="chip">${s.category}</span></td><td class="mono">${s.targetDDI}d</td><td class="mono">${s.moq}</td><td><span class="chip ${s.active?'chip-success':'chip-danger'}">${s.active?'Activo':'Inactivo'}</span></td><td style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm btn-icon" onclick='openSKUForm(${JSON.stringify(s)})'>✎</button><button class="btn btn-danger btn-sm btn-icon" onclick="deleteSKU('${s.id}')">✕</button></td></tr>`).join(''):`<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">▦</div><div class="empty-title">Sin SKUs</div></div></td></tr>`}</tbody></table></div>`; }
 function openSKUForm(sku=null){ document.getElementById('form-modal-title').textContent=sku?'Editar SKU':'Nuevo SKU'; document.getElementById('form-modal-body').innerHTML=`<div class="form-grid"><div class="form-group"><label>Código *</label><input id="f-code" value="${sku?.code||''}" placeholder="TEND001"></div><div class="form-group"><label>Nombre *</label><input id="f-name" value="${sku?.name||''}" placeholder="Tendidos"></div><div class="form-group"><label>Descripción</label><input id="f-desc" value="${sku?.description||''}" placeholder="Descripción del producto"></div><div class="form-group"><label>Categoría</label><input id="f-cat" value="${sku?.category||''}" placeholder="Ropa de Cama"></div><div class="form-group"><label>DDI Objetivo (días)</label><input id="f-ddi" type="number" value="${sku?.targetDDI||30}" min="1"></div></div><div style="margin-top:10px;padding:8px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;color:var(--text3)">💡 El MOQ se define por proveedor en la <strong>Matriz SKU-Prov-Dest</strong></div>`; formModalCallback=()=>{ const code=document.getElementById('f-code').value.trim(); const name=document.getElementById('f-name').value.trim(); if(!code||!name){toast('Código y nombre requeridos','error');return;} Admin.saveSKU({id:sku?.id,code,name,description:document.getElementById('f-desc').value.trim(),category:document.getElementById('f-cat').value.trim(),targetDDI:parseFloat(document.getElementById('f-ddi').value)||30,active:true}); closeModal('form-modal'); recalcAll(false); renderAdminSKUs(); toast('SKU guardado','success'); }; document.getElementById('form-modal').style.display='flex'; }
 function deleteSKU(id){ if(!confirm('¿Eliminar?')) return; Admin.deleteSKU(id); recalcAll(false); renderAdminSKUs(); toast('Eliminado','info'); }
 
@@ -914,8 +914,8 @@ function renderAdminSuppliers(){ const db=DB.get(); document.getElementById('con
 function openSupplierForm(s=null){ document.getElementById('form-modal-title').textContent=s?'Editar Proveedor':'Nuevo Proveedor'; document.getElementById('form-modal-body').innerHTML=`<div class="form-grid"><div class="form-group"><label>Nombre *</label><input id="f-sname" value="${s?.name||''}"></div><div class="form-group"><label>Contacto</label><input id="f-scont" value="${s?.contact||''}"></div><div class="form-group"><label>Email</label><input id="f-semail" value="${s?.email||''}"></div></div>`; formModalCallback=()=>{ const name=document.getElementById('f-sname').value.trim(); if(!name){toast('Nombre requerido','error');return;} Admin.saveSupplier({id:s?.id,name,contact:document.getElementById('f-scont').value.trim(),email:document.getElementById('f-semail').value.trim(),active:true}); closeModal('form-modal'); recalcAll(false); renderAdminSuppliers(); toast('Guardado','success'); }; document.getElementById('form-modal').style.display='flex'; }
 function deleteSupplier(id){ if(!confirm('¿Eliminar?')) return; Admin.deleteSupplier(id); recalcAll(false); renderAdminSuppliers(); toast('Eliminado','info'); }
 
-function renderAdminMatrix(sf=null,df=null){ if(sf===null){const e=document.getElementById('mat-sku');sf=e?e.value:'';} if(df===null){const e=document.getElementById('mat-dest');df=e?e.value:'';} const db=DB.get(); let m=[...db.matrix]; if(sf) m=m.filter(x=>x.skuId===sf); if(df) m=m.filter(x=>x.destId===df); document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">Matriz SKU–Prov–Dest</div></div><div class="section-actions"><button class="btn btn-primary btn-sm" onclick="openMatrixForm()">+ Nueva</button><button class="btn btn-danger btn-sm" onclick="clearAll('matrix')" title="Borrar toda la matriz">✕ Borrar todo</button></div></div><div class="toolbar"><select class="filter-select" id="mat-sku" onchange="renderAdminMatrix(this.value,document.getElementById('mat-dest').value)"><option value="">Todos los SKUs</option>${db.skus.map(s=>`<option value="${s.id}" ${sf===s.id?'selected':''}>${s.code}</option>`).join('')}</select><select class="filter-select" id="mat-dest" onchange="renderAdminMatrix(document.getElementById('mat-sku').value,this.value)"><option value="">Todos los destinos</option>${db.destinations.map(d=>`<option value="${d.id}" ${df===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div><div class="table-wrap"><table><thead><tr><th>SKU</th><th>Proveedor</th><th>Destino</th><th>LT (días)</th><th>Peso %</th><th>Norm %</th><th>MOQ</th><th>Activo</th><th></th></tr></thead><tbody>${m.length?m.map(x=>{ const sku=db.skus.find(s=>s.id===x.skuId); const sup=db.suppliers.find(s=>s.id===x.supplierId); const dest=db.destinations.find(d=>d.id===x.destId); const norm=Engine.normalizeSupplierWeights(x.skuId,x.destId); const ne=norm.find(n=>n.supplierId===x.supplierId); return `<tr><td class="bold">${sku?.code||x.skuId}</td><td>${sup?.name||x.supplierId}</td><td><span class="chip">${dest?.name||x.destId}</span></td><td class="mono">${x.leadTime}d</td><td class="mono">${fmt(x.weight,1)}%</td><td class="mono">${ne?fmt(ne.normalizedWeight*100,1):'—'}%</td><td class="mono" style="color:var(--accent)">${x.moq||1}</td><td><span class="chip ${x.active?'chip-success':'chip-danger'}">${x.active?'Sí':'No'}</span></td><td style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm btn-icon" onclick='openMatrixForm(${JSON.stringify(x)})'>✎</button><button class="btn btn-danger btn-sm btn-icon" onclick="deleteMatrixEntry('${x.skuId}','${x.supplierId}','${x.destId}')">✕</button></td></tr>`; }).join(''):`<tr><td colspan="8"><div class="empty-state"><div class="empty-title">Sin entradas</div></div></td></tr>`}</tbody></table></div>`; }
-function openMatrixForm(e=null){ const db=DB.get(); document.getElementById('form-modal-title').textContent=e?'Editar':'Nueva Entrada'; document.getElementById('form-modal-body').innerHTML=`<div class="form-grid"><div class="form-group"><label>SKU *</label><select id="f-msku"><option value="">—</option>${db.skus.map(s=>`<option value="${s.id}" ${e?.skuId===s.id?'selected':''}>${s.code} — ${s.name}</option>`).join('')}</select></div><div class="form-group"><label>Proveedor *</label><select id="f-msup"><option value="">—</option>${db.suppliers.map(s=>`<option value="${s.id}" ${e?.supplierId===s.id?'selected':''}>${s.name}</option>`).join('')}</select></div><div class="form-group"><label>Destino *</label><select id="f-mdest"><option value="">—</option>${db.destinations.map(d=>`<option value="${d.id}" ${e?.destId===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div><div class="form-group"><label>Lead Time (días)</label><input id="f-mlt" type="number" value="${e?.leadTime||7}" min="0"></div><div class="form-group"><label>Peso (%)</label><input id="f-mw" type="number" value="${e?.weight||25}" min="0" max="100"></div><div class="form-group"><label>MOQ (mín. pedido)</label><input id="f-mmoq" type="number" value="${e?.moq||1}" min="1" placeholder="Ej: 50"></div><div class="form-group"><label>Activo</label><select id="f-mact"><option value="true" ${e?.active!==false?'selected':''}>Sí</option><option value="false" ${e?.active===false?'selected':''}>No</option></select></div></div>`; formModalCallback=()=>{ const skuId=document.getElementById('f-msku').value; const supplierId=document.getElementById('f-msup').value; const destId=document.getElementById('f-mdest').value; if(!skuId||!supplierId||!destId){toast('Todos los campos requeridos','error');return;} Admin.saveMatrixEntry({skuId,supplierId,destId,leadTime:parseFloat(document.getElementById('f-mlt').value)||0,weight:parseFloat(document.getElementById('f-mw').value)||25,moq:parseFloat(document.getElementById('f-mmoq').value)||1,active:document.getElementById('f-mact').value==='true'}); closeModal('form-modal'); recalcAll(false); renderAdminMatrix(); toast('Guardado','success'); }; document.getElementById('form-modal').style.display='flex'; }
+function renderAdminMatrix(sf=null,df=null){ if(sf===null){const e=document.getElementById('mat-sku');sf=e?e.value:'';} if(df===null){const e=document.getElementById('mat-dest');df=e?e.value:'';} const db=DB.get(); let m=[...db.matrix]; if(sf) m=m.filter(x=>x.skuId===sf); if(df) m=m.filter(x=>x.destId===df); document.getElementById('content').innerHTML=`<div class="section-header"><div><div class="section-title">Matriz SKU–Prov–Dest</div></div><div class="section-actions"><button class="btn btn-primary btn-sm" onclick="openMatrixForm()">+ Nueva</button><button class="btn btn-danger btn-sm" onclick="clearAll('matrix')" title="Borrar toda la matriz">✕ Borrar todo</button></div></div><div class="toolbar"><select class="filter-select" id="mat-sku" onchange="renderAdminMatrix(this.value,document.getElementById('mat-dest').value)"><option value="">Todos los SKUs</option>${db.skus.map(s=>`<option value="${s.id}" ${sf===s.id?'selected':''}>${s.name} (${s.code})</option>`).join('')}</select><select class="filter-select" id="mat-dest" onchange="renderAdminMatrix(document.getElementById('mat-sku').value,this.value)"><option value="">Todos los destinos</option>${db.destinations.map(d=>`<option value="${d.id}" ${df===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div><div class="table-wrap"><table><thead><tr><th>SKU</th><th>Proveedor</th><th>Destino</th><th>LT (días)</th><th>Peso %</th><th>Norm %</th><th>MOQ</th><th>Activo</th><th></th></tr></thead><tbody>${m.length?m.map(x=>{ const sku=db.skus.find(s=>s.id===x.skuId); const sup=db.suppliers.find(s=>s.id===x.supplierId); const dest=db.destinations.find(d=>d.id===x.destId); const norm=Engine.normalizeSupplierWeights(x.skuId,x.destId); const ne=norm.find(n=>n.supplierId===x.supplierId); return `<tr><td class="bold">${sku?.name||x.skuId}<br><span style="font-size:10px;color:var(--text3);font-weight:400">${sku?.code||''}</span></td><td>${sup?.name||x.supplierId}</td><td><span class="chip">${dest?.name||x.destId}</span></td><td class="mono">${x.leadTime}d</td><td class="mono">${fmt(x.weight,1)}%</td><td class="mono">${ne?fmt(ne.normalizedWeight*100,1):'—'}%</td><td class="mono" style="color:var(--accent)">${x.moq||1}</td><td><span class="chip ${x.active?'chip-success':'chip-danger'}">${x.active?'Sí':'No'}</span></td><td style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm btn-icon" onclick='openMatrixForm(${JSON.stringify(x)})'>✎</button><button class="btn btn-danger btn-sm btn-icon" onclick="deleteMatrixEntry('${x.skuId}','${x.supplierId}','${x.destId}')">✕</button></td></tr>`; }).join(''):`<tr><td colspan="8"><div class="empty-state"><div class="empty-title">Sin entradas</div></div></td></tr>`}</tbody></table></div>`; }
+function openMatrixForm(e=null){ const db=DB.get(); document.getElementById('form-modal-title').textContent=e?'Editar':'Nueva Entrada'; document.getElementById('form-modal-body').innerHTML=`<div class="form-grid"><div class="form-group"><label>SKU *</label><select id="f-msku"><option value="">—</option>${db.skus.map(s=>`<option value="${s.id}" ${e?.skuId===s.id?'selected':''}>${s.name} (${s.code})</option>`).join('')}</select></div><div class="form-group"><label>Proveedor *</label><select id="f-msup"><option value="">—</option>${db.suppliers.map(s=>`<option value="${s.id}" ${e?.supplierId===s.id?'selected':''}>${s.name}</option>`).join('')}</select></div><div class="form-group"><label>Destino *</label><select id="f-mdest"><option value="">—</option>${db.destinations.map(d=>`<option value="${d.id}" ${e?.destId===d.id?'selected':''}>${d.name}</option>`).join('')}</select></div><div class="form-group"><label>Lead Time (días)</label><input id="f-mlt" type="number" value="${e?.leadTime||7}" min="0"></div><div class="form-group"><label>Peso (%)</label><input id="f-mw" type="number" value="${e?.weight||25}" min="0" max="100"></div><div class="form-group"><label>MOQ (mín. pedido)</label><input id="f-mmoq" type="number" value="${e?.moq||1}" min="1" placeholder="Ej: 50"></div><div class="form-group"><label>Activo</label><select id="f-mact"><option value="true" ${e?.active!==false?'selected':''}>Sí</option><option value="false" ${e?.active===false?'selected':''}>No</option></select></div></div>`; formModalCallback=()=>{ const skuId=document.getElementById('f-msku').value; const supplierId=document.getElementById('f-msup').value; const destId=document.getElementById('f-mdest').value; if(!skuId||!supplierId||!destId){toast('Todos los campos requeridos','error');return;} Admin.saveMatrixEntry({skuId,supplierId,destId,leadTime:parseFloat(document.getElementById('f-mlt').value)||0,weight:parseFloat(document.getElementById('f-mw').value)||25,moq:parseFloat(document.getElementById('f-mmoq').value)||1,active:document.getElementById('f-mact').value==='true'}); closeModal('form-modal'); recalcAll(false); renderAdminMatrix(); toast('Guardado','success'); }; document.getElementById('form-modal').style.display='flex'; }
 function deleteMatrixEntry(skuId,supplierId,destId){ if(!confirm('¿Eliminar?')) return; Admin.deleteMatrixEntry(skuId,supplierId,destId); recalcAll(false); renderAdminMatrix(); toast('Eliminado','info'); }
 
 function renderAdminInventory(sf=null, df=null) {
@@ -957,7 +957,7 @@ function renderAdminInventory(sf=null, df=null) {
         <input type="number" step="0.1" min="0"
           value="${val}"
           placeholder="${placeholder}"
-          title="${m.name} ${m.year} — ${sku?.code||inv.skuId}/${dest?.name||inv.destId}"
+          title="${m.name} ${m.year} — ${sku?.name||inv.skuId}/${dest?.name||inv.destId}"
           style="width:56px;background:var(--bg3);border:1px solid ${hasVal?'var(--success)':'var(--border)'};
                  border-radius:4px;padding:4px 5px;color:${hasVal?'var(--success)':'var(--text3)'};
                  font-family:var(--font-mono);font-size:12px;text-align:center;outline:none"
@@ -968,7 +968,7 @@ function renderAdminInventory(sf=null, df=null) {
     }).join('');
 
     return `<tr>
-      <td class="bold">${sku?.code || inv.skuId}</td>
+      <td class="bold">${sku?.name || inv.skuId}<br><span style="font-size:10px;color:var(--text3);font-weight:400">${sku?.code || ''}</span></td>
       <td><span class="chip">${dest?.name || inv.destId}</span></td>
       <td style="font-family:var(--font-mono)">${fmtInt(inv.inventory)}</td>
       <td style="font-family:var(--font-mono);color:var(--accent);font-weight:700">${fmt(inv.ird, 2)}</td>
@@ -1003,7 +1003,7 @@ function renderAdminInventory(sf=null, df=null) {
       <select class="filter-select" id="inv-sku"
         onchange="renderAdminInventory(this.value, document.getElementById('inv-dest').value)">
         <option value="">Todos los SKUs</option>
-        ${db.skus.map(s => `<option value="${s.id}" ${sf===s.id?'selected':''}>${s.code}</option>`).join('')}
+        ${db.skus.map(s => `<option value="${s.id}" ${sf===s.id?'selected':''}>${s.name} (${s.code})</option>`).join('')}
       </select>
       <select class="filter-select" id="inv-dest"
         onchange="renderAdminInventory(document.getElementById('inv-sku').value, this.value)">
@@ -1048,7 +1048,7 @@ function openInventoryForm(inv = null) {
         <label>SKU *</label>
         <select id="f-isku">
           <option value="">— Seleccionar —</option>
-          ${db.skus.map(s => `<option value="${s.id}" ${inv?.skuId===s.id?'selected':''}>${s.code} — ${s.name}</option>`).join('')}
+          ${db.skus.map(s => `<option value="${s.id}" ${inv?.skuId===s.id?'selected':''}>${s.name} (${s.code})</option>`).join('')}
         </select>
       </div>
       <div class="form-group">
@@ -1335,7 +1335,7 @@ function drawHerramientaPreview() {
         <thead><tr style="background:var(--bg3)">${th('')}${th('SKU')}${th('Destino')}${th('Inventario')}${th('IRD Real')}</tr></thead>
         <tbody>${p.inventory.map(r => `<tr style="${rowStyle(r)}">
           <td style="padding:6px 10px">${chk('inventory',r)}</td>
-          <td class="bold">${r.skuCode}</td>
+          <td class="bold">${r.skuName||r.skuCode}<br><span style="font-size:10px;color:var(--text3);font-weight:400">${r.skuCode}</span></td>
           <td><span class="chip">${r.destName}</span></td>
           <td style="font-family:var(--font-mono)">${arrow(r.oldInv, r.newInv)}</td>
           <td style="font-family:var(--font-mono)">${arrow(r.oldIrd, r.newIrd)}</td>
@@ -1347,7 +1347,7 @@ function drawHerramientaPreview() {
         <thead><tr style="background:var(--bg3)">${th('')}${th('SKU')}${th('Destino')}${th('Mes')}${th('IRD Teórico')}</tr></thead>
         <tbody>${p.monthly.map(r => `<tr style="${rowStyle(r)}">
           <td style="padding:6px 10px">${chk('monthly',r)}</td>
-          <td class="bold">${r.skuCode}</td>
+          <td class="bold">${r.skuName||r.skuCode}<br><span style="font-size:10px;color:var(--text3);font-weight:400">${r.skuCode}</span></td>
           <td><span class="chip">${r.destName}</span></td>
           <td>${r.monthName} ${r.year}</td>
           <td style="font-family:var(--font-mono)">${arrow(r.oldIrd, r.newIrd)}</td>
@@ -1364,7 +1364,7 @@ function drawHerramientaPreview() {
           const daysTxt = days === null ? '?' : (days < 0 ? `hace ${Math.abs(days)}d` : `en ${days}d`);
           return `<tr style="${rowStyle(r)}">
             <td style="padding:6px 10px">${chk('orders',r)}</td>
-            <td class="bold">${r.skuCode}</td>
+            <td class="bold">${r.skuName||r.skuCode}<br><span style="font-size:10px;color:var(--text3);font-weight:400">${r.skuCode}</span></td>
             <td><span class="chip">${r.destName}</span></td>
             <td style="font-family:var(--font-mono);color:var(--accent);font-weight:700">${fmtInt(r.qty)}</td>
             <td style="font-family:var(--font-mono)">${r.arrivalDate} <span style="color:var(--text3);font-size:11px">(${daysTxt})</span></td>
@@ -1466,7 +1466,7 @@ function openMonthlyIrdsModal(skuId, destId) {
   const months = DateUtils.getMonthsCovered(weeks);
 
   document.getElementById('form-modal-title').textContent =
-    `IRDs Teóricos — ${sku?.code||skuId} / ${dest?.name||destId}`;
+    `IRDs Teóricos — ${sku?.name||skuId} / ${dest?.name||destId}`;
 
   const rows = months.map(m => {
     const entry = db.monthlyIrds.find(x=>x.skuId===skuId&&x.destId===destId&&x.year===m.year&&x.month===m.month);

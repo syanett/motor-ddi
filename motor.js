@@ -853,7 +853,7 @@ const Importer = {
           if (hasBog && !isNaN(invBog) && !isNaN(irdBog)) {
             const ex = db.inventory.find(x => x.skuId===skuId && x.destId===destBog) || {};
             result.preview.inventory.push({
-              skuId, skuCode: sku.code, destId: destBog, destName: destName(destBog),
+              skuId, skuCode: sku.code, skuName: sku.name, destId: destBog, destName: destName(destBog),
               oldInv: ex.inventory ?? null, newInv: invBog,
               oldIrd: ex.ird ?? null,       newIrd: irdBog
             });
@@ -861,7 +861,7 @@ const Importer = {
           if (hasGal && !isNaN(invGal) && !isNaN(irdGal)) {
             const ex = db.inventory.find(x => x.skuId===skuId && x.destId===destGal) || {};
             result.preview.inventory.push({
-              skuId, skuCode: sku.code, destId: destGal, destName: destName(destGal),
+              skuId, skuCode: sku.code, skuName: sku.name, destId: destGal, destName: destName(destGal),
               oldInv: ex.inventory ?? null, newInv: invGal,
               oldIrd: ex.ird ?? null,       newIrd: irdGal
             });
@@ -870,7 +870,7 @@ const Importer = {
           if (!isNaN(irdTm) && hasGal) {
             const ex = db.monthlyIrds.find(x => x.skuId===skuId && x.destId===destGal && x.year===yrT && x.month===moT);
             result.preview.monthly.push({
-              skuId, skuCode: sku.code, destId: destGal, destName: destName(destGal),
+              skuId, skuCode: sku.code, skuName: sku.name, destId: destGal, destName: destName(destGal),
               year: yrT, month: moT, monthName: MNAME(moT),
               oldIrd: ex ? ex.ird : null, newIrd: irdTm
             });
@@ -879,7 +879,7 @@ const Importer = {
           if (!isNaN(irdTn) && hasGal) {
             const ex = db.monthlyIrds.find(x => x.skuId===skuId && x.destId===destGal && x.year===yrU && x.month===moU);
             result.preview.monthly.push({
-              skuId, skuCode: sku.code, destId: destGal, destName: destName(destGal),
+              skuId, skuCode: sku.code, skuName: sku.name, destId: destGal, destName: destName(destGal),
               year: yrU, month: moU, monthName: MNAME(moU),
               oldIrd: ex ? ex.ird : null, newIrd: irdTn
             });
@@ -918,7 +918,7 @@ const Importer = {
           if (!db.destinations.find(d => d.id === dId && d.active)) continue;
           const sku = skuById(skuId);
           result.preview.orders.push({
-            skuId, skuCode: sku.code, destId: dId, destName: destName(dId),
+            skuId, skuCode: sku.code, skuName: sku.name, destId: dId, destName: destName(dId),
             qty, arrivalDate
           });
         }
