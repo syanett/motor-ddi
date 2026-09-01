@@ -594,9 +594,13 @@ const Engine = {
         nominalDate: DateUtils.addDays(today, sq.leadTime)
       }));
 
-    const suggestedQty = supplierQtys.length
+    // Sin rutas activas en la matriz NO se sugiere compra: no hay por dónde comprar.
+    // Se marca la carencia para poder avisar en la interfaz.
+    const hasActiveRoute = supplierQtys.length > 0;
+    const suggestedQty = hasActiveRoute
       ? supplierQtys.reduce((s, sq) => s + sq.quantity, 0)
-      : (compraBruta > 0 ? this.roundToTen(Math.ceil(compraBruta)) : 0);
+      : 0;
+    const needsRoute = !hasActiveRoute && compraBruta > 0;
 
     const suppliers   = this.normalizeSupplierWeights(skuId, destId);
     const avgLeadTime = suppliers.length
@@ -627,7 +631,7 @@ const Engine = {
       projectedInv: Math.round(projectedInv),
       targetInv: Math.round(targetInv),
       compraBruta: Math.round(compraBruta),
-      suggestedQty, projectedDDI,
+      suggestedQty, projectedDDI, needsRoute,
       currentDDI, ddiColor,
       distribution: [], // se completa en fase 3 (calcAll)
       _supplierQtys: supplierQtys,
