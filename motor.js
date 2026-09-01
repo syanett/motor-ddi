@@ -570,12 +570,20 @@ const Engine = {
     // Ventas = WeeklyDemand_actual × (7−DS)/7
     const ventas = wdCur.total * (7 - DS) / 7;
 
-    // Pedidos que llegan hasta fin de semana actual
-    const ordersWeek = this.getOrdersInRange(skuId, destId, today, curWE);
-    const ordersWeekQty = ordersWeek.reduce((s, o) => s + (o.qty || 0), 0);
+    // Pedidos ya colocados que cubren el mismo horizonte que el Inventario Objetivo.
+    // El objetivo cubre DDI_objetivo días a partir del corte (fin de semana actual),
+    // así que TODO pedido que llegue dentro de esa ventana ya está cubriendo esa
+    // demanda y no debe volver a comprarse.
+    const horizonEnd    = DateUtils.addDays(curWE, targetDDI);
+    const ordersHorizon = this.getOrdersInRange(skuId, destId, today, horizonEnd);
+    const ordersHorizonQty = ordersHorizon.reduce((s, o) => s + (o.qty || 0), 0);
 
-    // InvProyectado al fin de semana actual
-    const projectedInv = currentInv - ventas + ordersWeekQty;
+    // Desglose informativo: cuánto llega dentro de la semana actual
+    const ordersWeekQty = this.getOrdersInRange(skuId, destId, today, curWE)
+      .reduce((s, o) => s + (o.qty || 0), 0);
+
+    // InvProyectado = disponible − ventas + pedidos en camino dentro del horizonte
+    const projectedInv = currentInv - ventas + ordersHorizonQty;
 
     // InventarioObjetivo basado en demanda semana próxima
     const targetInv = (wdNxt.total / 7) * targetDDI;
@@ -624,6 +632,7 @@ const Engine = {
       description: sku.description, category: sku.category, destName: dest.name,
       irdr,
       currentInv, ventas: Math.round(ventas), ordersWeekQty,
+      ordersHorizonQty, horizonEnd,
       weeklyDemandCur: Math.round(wdCur.total),
       weeklyDemandNxt: Math.round(wdNxt.total),
       incomingOrders: this.getTotalIncoming(skuId, destId),
