@@ -355,86 +355,133 @@ const Engine = {
     const db = DB.get();
     return suppliers.map(e => {
       const sup = db.suppliers.find(s => s.id === e.supplierId);
-      const moq = e.moq || 1;
+      // Cantidad CRUDA por referencia. El MOQ NO se aplica aquí: se valida
+      // sobre la suma consolidada de todas las referencias del proveedor
+      // para un mismo día de entrega (ver scheduleDeliveries).
       const raw = qtyNeeded * e.normalizedWeight;
-      const moqQty = Math.ceil(raw / moq) * moq;
-      const quantity = this.roundToTen(moqQty);
       return {
         supplierId: e.supplierId, supplierName: sup?.name || e.supplierId,
         leadTime: e.leadTime || 0, weight: e.weight || 0,
-        normalizedWeight: e.normalizedWeight, moq, quantity
+        normalizedWeight: e.normalizedWeight,
+        moq: e.moq || 1,
+        quantity: this.roundToTen(Math.ceil(raw))
       };
     });
   },
 
   /**
-   * Programa las fechas de entrega de TODAS las líneas de compra pendientes a la vez.
+   * Programa las entregas de TODAS las compras pendientes de forma consolidada.
+   *
+   * Unidad de programación = ENTREGA CONSOLIDADA de un proveedor:
+   *   (proveedor × categoría × destino) agrupa todas sus referencias.
    *
    * Reglas:
-   *  - Tope de 500 u/día por PROVEEDOR + CATEGORÍA (categorías distintas no comparten tope,
-   *    incluso para el mismo proveedor; dos proveedores de categorías distintas sí pueden
-   *    coincidir en el mismo día sin restricción).
-   *  - Holgura de ±3 días sobre la fecha nominal (hoy + lead time) de cada línea.
-   *  - Preferencia por repartir en 2-3 semanas dentro del mes en vez de saturar un solo día:
-   *    para cada línea se intenta primero la semana nominal (con holgura), y si no cabe todo
-   *    el remanente pasa a la semana siguiente, y así sucesivamente.
+   *  1. MOQ CONSOLIDADO: el mínimo se valida sobre la SUMA de todas las referencias
+   *     del proveedor en la entrega, no por referencia individual.
+   *  2. CONSOLIDACIÓN: se entrega todo lo posible en un mismo día (hasta 500 u).
+   *     Solo se abre un nuevo día cuando se agota la capacidad diaria.
+   *  3. EXCLUSIVIDAD DE DÍA: dentro de una misma categoría + destino, un día de
+   *     entrega pertenece a UN SOLO proveedor. Dos proveedores de la misma
+   *     categoría nunca coinciden en la misma fecha.
+   *  4. Entregas sucesivas del mismo proveedor se separan una semana (2-3 al mes).
+   *  5. Holgura de ±3 días para encontrar un día libre.
    *
-   * pendingLines: [{ skuId, destId, category, supplierId, supplierName, leadTime, moq, quantity, nominalDate }]
-   * Retorna Map key=`${skuId}|${destId}|${supplierId}` -> shipments: [{ qty, date }]
+   * Retorna Map key=`${skuId}|${destId}|${supplierId}` -> [{ qty, date }]
    */
   scheduleDeliveries(pendingLines) {
     const DAILY_CAP = 500;
-    const SLACK = 3;
-    const today = DateUtils.today();
+    const SLACK     = 3;
+    const today     = DateUtils.today();
 
-    // Agrupar por proveedor + categoría (tope independiente por grupo)
+    // Reserva de días: `${categoria}::${destId}::${iso}` -> supplierId dueño del día
+    const dayOwner = {};
+
+    // Agrupar por proveedor × categoría × destino (entrega consolidada)
     const groups = {};
     for (const line of pendingLines) {
-      const key = `${line.supplierId}::${line.category || ''}`;
-      (groups[key] = groups[key] || []).push(line);
+      const key = `${line.supplierId}::${line.category || ''}::${line.destId}`;
+      if (!groups[key]) {
+        groups[key] = {
+          supplierId: line.supplierId, category: line.category || '',
+          destId: line.destId, moq: line.moq || 1, lines: []
+        };
+      }
+      const g = groups[key];
+      g.moq = Math.max(g.moq, line.moq || 1);
+      g.lines.push(line);
     }
 
     const resultMap = new Map();
+    const pushShipment = (line, qty, date) => {
+      const k = `${line.skuId}|${line.destId}|${line.supplierId}`;
+      if (!resultMap.has(k)) resultMap.set(k, []);
+      resultMap.get(k).push({ qty, date: new Date(date) });
+    };
 
-    for (const groupLines of Object.values(groups)) {
-      const dayLoad = {};
-      const iso    = d => DateUtils.toISO(d);
-      const loadOn = d => dayLoad[iso(d)] || 0;
-      const addLoad = (d, q) => { dayLoad[iso(d)] = loadOn(d) + q; };
+    // La fecha nominal del grupo respeta el lead time más largo de sus referencias
+    const groupList = Object.values(groups).map(g => {
+      g.nominalDate = new Date(Math.max(...g.lines.map(l => l.nominalDate.getTime())));
+      return g;
+    }).sort((a, b) => a.nominalDate - b.nominalDate);
 
-      // Procesar primero las líneas con lead time más corto (más urgentes)
-      const sorted = [...groupLines].sort((a, b) => a.nominalDate - b.nominalDate);
+    for (const g of groupList) {
+      // ── 1. Cantidad por referencia (decenas) ──
+      const items = g.lines
+        .map(l => ({ line: l, qty: this.roundToTen(Math.ceil(l.quantity)) }))
+        .filter(it => it.qty > 0)
+        .sort((a, b) => b.qty - a.qty);
+      if (!items.length) continue;
 
-      for (const line of sorted) {
-        const shipments = [];
-        let remaining = line.quantity;
-        let week = 0;
+      // ── 2. MOQ CONSOLIDADO sobre la suma de referencias ──
+      let total = items.reduce((s, it) => s + it.qty, 0);
+      if (total < g.moq) {
+        const falta = this.roundToTen(g.moq - total);
+        items[0].qty += falta;   // se completa con la referencia de mayor necesidad
+        total += falta;
+      }
 
-        while (remaining > 0 && week < 12) { // límite de seguridad: 12 semanas
-          const base = DateUtils.addDays(line.nominalDate, week * 7);
-
-          // Candidatos dentro de esta "semana" con holgura ±3 días
-          const offsets = [0];
-          for (let o = 1; o <= SLACK; o++) { offsets.push(o); offsets.push(-o); }
-
-          let bestDay = null, bestCap = -1;
-          for (const off of offsets) {
-            const d = DateUtils.addDays(base, off);
-            if (d < today) continue;
-            const cap = DAILY_CAP - loadOn(d);
-            if (cap > bestCap) { bestCap = cap; bestDay = d; }
-          }
-
-          if (bestDay && bestCap > 0) {
-            const chunk = Math.min(remaining, bestCap);
-            shipments.push({ qty: chunk, date: new Date(bestDay) });
-            addLoad(bestDay, chunk);
-            remaining -= chunk;
-          }
-          week++;
+      // ── 3. Empaquetar referencias en días (todo lo posible por día) ──
+      const deliveries = [];
+      let cur = { items: [], total: 0 };
+      for (const it of items) {
+        let remaining = it.qty;
+        while (remaining > 0) {
+          const space = DAILY_CAP - cur.total;
+          if (space <= 0) { deliveries.push(cur); cur = { items: [], total: 0 }; continue; }
+          const take = Math.min(remaining, space);
+          cur.items.push({ line: it.line, qty: take });
+          cur.total += take;
+          remaining -= take;
         }
+      }
+      if (cur.items.length) deliveries.push(cur);
 
-        resultMap.set(`${line.skuId}|${line.destId}|${line.supplierId}`, shipments);
+      // ── 4. Asignar fecha exclusiva a cada entrega, separadas por semana ──
+      const usedByGroup = new Set();
+      for (let di = 0; di < deliveries.length; di++) {
+        const base = DateUtils.addDays(g.nominalDate, di * 7);
+        const offsets = [0];
+        for (let o = 1; o <= SLACK; o++) { offsets.push(o); offsets.push(-o); }
+
+        let chosen = null;
+        for (let wk = 0; wk < 16 && !chosen; wk++) {
+          for (const off of offsets) {
+            const d = DateUtils.addDays(base, wk * 7 + off);
+            if (d < today) continue;
+            const iso = DateUtils.toISO(d);
+            if (usedByGroup.has(iso)) continue;                 // no repetir día del grupo
+            const owner = dayOwner[`${g.category}::${g.destId}::${iso}`];
+            if (owner && owner !== g.supplierId) continue;       // día tomado por otro proveedor
+            chosen = d; break;
+          }
+        }
+        if (!chosen) chosen = DateUtils.addDays(base, di);       // último recurso
+
+        const isoChosen = DateUtils.toISO(chosen);
+        dayOwner[`${g.category}::${g.destId}::${isoChosen}`] = g.supplierId;
+        usedByGroup.add(isoChosen);
+
+        for (const it of deliveries[di].items) pushShipment(it.line, it.qty, chosen);
       }
     }
 
@@ -621,13 +668,27 @@ const Engine = {
           arrivalDate: sh.date,
           orderByDate: DateUtils.addDays(sh.date, -sq.leadTime)
         }));
+        // La cantidad real del proveedor es la suma de sus envíos programados
+        // (puede diferir del cálculo previo por el MOQ consolidado)
+        const scheduledQty = shipments.reduce((s, sh) => s + sh.qty, 0);
         return {
           supplierId: sq.supplierId, supplierName: sq.supplierName,
           leadTime: sq.leadTime, weight: sq.weight, normalizedWeight: sq.normalizedWeight,
-          moq: sq.moq, quantity: sq.quantity,
+          moq: sq.moq,
+          quantity: scheduledQty || sq.quantity,
           shipments
         };
       });
+
+      // Recalcular la compra total y el DDI proyectado con las cantidades ya programadas
+      const totalScheduled = row.distribution.reduce((s, d) => s + d.quantity, 0);
+      if (totalScheduled > 0) {
+        row.suggestedQty = totalScheduled;
+        row.projectedDDI = row.irdr > 0
+          ? (row.projectedInv + totalScheduled) / row.irdr
+          : null;
+      }
+
       delete row._supplierQtys;
       delete row._pendingLines;
     }
