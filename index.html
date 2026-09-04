@@ -134,6 +134,7 @@
         <div class="nav-label">Análisis</div>
         <div class="nav-item active" data-view="dashboard"      onclick="navigateTo('dashboard')"><span class="nav-icon">◉</span> Dashboard</div>
         <div class="nav-item"        data-view="heatmap"         onclick="navigateTo('heatmap')"><span class="nav-icon">▦</span> Heatmap Semanal</div>
+        <div class="nav-item"        data-view="simulator"       onclick="navigateTo('simulator')"><span class="nav-icon">⚗</span> Simulador de entregas</div>
         <div class="nav-item"        data-view="replenishment"   onclick="navigateTo('replenishment')"><span class="nav-icon">⬆</span> Reabastecimiento</div>
         <div class="nav-item"        data-view="purchase-orders"  onclick="navigateTo('purchase-orders')"><span class="nav-icon">🛒</span> Órdenes de Compra</div>
         <div class="nav-item"        data-view="suppliers-view"  onclick="navigateTo('suppliers-view')"><span class="nav-icon">⊞</span> Por Proveedor</div>
@@ -242,10 +243,11 @@ function navigateTo(view, updateActive=true){
   currentView=view;
   if(updateActive) document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.view===view));
   const titles={ dashboard:['Dashboard','Vista general del inventario'], 'purchase-orders':['Órdenes de Compra','Distribución por proveedor con fechas de entrega'],
+    simulator:['Simulador de entregas','Prueba escenarios de entrega y observa el impacto en los DDI'],
     heatmap:['Heatmap Semanal','Disponibilidad proyectada semana a semana · Asistente de Compra'], replenishment:['Reabastecimiento','Compras sugeridas por SKU y destino'], 'suppliers-view':['Por Proveedor','Distribución de compras por proveedor'], 'admin-orders':['Pedidos en Camino','Gestión de pedidos con fecha de llegada'], 'admin-skus':['SKUs','Gestión de productos'], 'admin-destinations':['Destinos','Bodegas y centros de distribución'], 'admin-suppliers':['Proveedores','Gestión de proveedores'], 'admin-matrix':['Matriz SKU-Prov-Dest','Lead times, pesos y rutas'], 'admin-inventory':['Inventario','Niveles de inventario y demanda'], 'herramienta':['Actualización herramienta','Cargar datos de inventario, IRD y pedidos desde SAP'],
     import:['Importar Excel','Carga masiva desde .xlsx'], templates:['Plantillas Excel','Descarga plantillas'] };
   const [t,s]=titles[view]||['Vista','']; document.getElementById('header-title').textContent=t; document.getElementById('header-subtitle').textContent=s;
-  const views={ dashboard:renderDashboard, heatmap:renderHeatmap, replenishment:renderReplenishment, 'purchase-orders':renderPurchaseOrders, 'suppliers-view':renderSuppliersView, 'admin-orders':renderAdminOrders, 'admin-skus':renderAdminSKUs, 'admin-destinations':renderAdminDestinations, 'admin-suppliers':renderAdminSuppliers, 'admin-matrix':renderAdminMatrix, 'admin-inventory':renderAdminInventory, herramienta:renderHerramientaUpdate, import:renderImport, templates:renderTemplates };
+  const views={ dashboard:renderDashboard, heatmap:renderHeatmap, replenishment:renderReplenishment, 'purchase-orders':renderPurchaseOrders, simulator:renderSimulator, 'suppliers-view':renderSuppliersView, 'admin-orders':renderAdminOrders, 'admin-skus':renderAdminSKUs, 'admin-destinations':renderAdminDestinations, 'admin-suppliers':renderAdminSuppliers, 'admin-matrix':renderAdminMatrix, 'admin-inventory':renderAdminInventory, herramienta:renderHerramientaUpdate, import:renderImport, templates:renderTemplates };
   (views[view]||(() => {}))(); closeSidebar();
 }
 
@@ -501,6 +503,266 @@ function orderByHtml(orderByDate) {
   }
   return `<div style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:${color}">${label}</div>
           <div style="font-size:10px;color:var(--text3)">${sub}</div>`;
+}
+
+// ══════════════════════════════════════════════════════
+// SIMULADOR DE ENTREGAS
+// Escenarios "¿qué pasa si el proveedor entrega X en la semana i?"
+// Las cantidades son HIPOTÉTICAS: no crean pedidos ni tocan los datos reales.
+// ══════════════════════════════════════════════════════
+const SIM_KEY = 'asistente_compra_sim';
+let _sims = null;
+
+function loadSims() {
+  if (_sims) return _sims;
+  try { _sims = JSON.parse(localStorage.getItem(SIM_KEY) || '{}'); }
+  catch(e) { _sims = {}; }
+  return _sims;
+}
+function saveSims() {
+  try { localStorage.setItem(SIM_KEY, JSON.stringify(_sims || {})); } catch(e) {}
+}
+function simKey(skuId, destId, wi) { return `${skuId}|${destId}|${wi}`; }
+function getSim(skuId, destId, wi) { return Number(loadSims()[simKey(skuId,destId,wi)]) || 0; }
+function setSim(skuId, destId, wi, qty) {
+  loadSims();
+  const k = simKey(skuId,destId,wi);
+  if (!qty || qty <= 0) delete _sims[k];
+  else _sims[k] = qty;
+  saveSims();
+}
+/** Array indexado por semana con las cantidades simuladas de un SKU+destino */
+function simArrayFor(skuId, destId, nWeeks) {
+  const arr = new Array(nWeeks).fill(0);
+  const s = loadSims();
+  for (let i = 0; i < nWeeks; i++) arr[i] = Number(s[simKey(skuId,destId,i)]) || 0;
+  return arr;
+}
+
+function renderSimulator(destFilter=null, catFilter=null) {
+  if (destFilter===null) { const e=document.getElementById('sim-dest'); destFilter = e?e.value:''; }
+  if (catFilter===null)  { const e=document.getElementById('sim-cat');  catFilter  = e?e.value:''; }
+
+  const db    = DB.get();
+  const sims  = loadSims();
+  const weeks = DateUtils.getWeeks(10);
+  const today = DateUtils.today();
+
+  let rows = [...cachedResults];
+  if (destFilter) rows = rows.filter(r => r.destId === destFilter);
+  if (catFilter)  rows = rows.filter(r => r.category === catFilter);
+
+  const dests = db.destinations.filter(d => d.active);
+  const cats  = [...new Set(cachedResults.map(r => r.category).filter(Boolean))];
+
+  const activeSims = Object.entries(sims).filter(([k,v]) => v > 0);
+  const totalSimUnits = activeSims.reduce((s,[,v]) => s + Number(v), 0);
+
+  // Construir filas: proyección base vs proyección simulada
+  const bodyRows = rows.map(r => {
+    const simArr   = simArrayFor(r.skuId, r.destId, weeks.length);
+    const hasSim   = simArr.some(q => q > 0);
+    const simProj  = hasSim
+      ? Engine.calcWeeklyProjection(r.skuId, r.destId, weeks.length, simArr)
+      : r.weeklyProjection;
+    const baseProj = r.weeklyProjection;
+    const todayC   = Engine.getDDIColor(r.currentDDI);
+
+    const cells = simProj.map((w, wi) => {
+      const c        = Engine.getDDIColor(w.projDDI);
+      const q        = simArr[wi];
+      const baseDDI  = baseProj[wi] ? baseProj[wi].projDDI : null;
+      const delta    = (baseDDI !== null && w.projDDI !== null) ? (w.projDDI - baseDDI) : 0;
+      const hasOrder = w.ordersThisWeek && w.ordersThisWeek.length > 0;
+      const deltaTxt = Math.abs(delta) >= 0.5
+        ? `<div style="font-size:9px;color:#fff;opacity:.95">+${fmt(delta,0)}d</div>` : '';
+      return `<td style="padding:0">
+        <div class="heat-cell" title="Clic para simular una entrega en ${w.labelFull}"
+             onclick="openSimCell('${r.skuId}','${r.destId}',${wi})"
+             style="background:${c.color};color:white;cursor:pointer;position:relative;
+                    ${q>0?'box-shadow:inset 0 0 0 2px #fff':''}">
+          ${hasOrder?'<div class="order-dot"></div>':''}
+          <div class="hv">${w.projDDI!==null?fmt(w.projDDI):'—'}</div>
+          <div class="hl">${fmtInt(w.projInv)}</div>
+          ${q>0?`<div style="font-size:9px;font-weight:800;color:#fff">+${fmtInt(q)}</div>`:deltaTxt}
+        </div></td>`;
+    }).join('');
+
+    return `<tr>
+      <td class="td-sku" style="cursor:default">${r.skuName}<br>
+        <span style="font-size:10px;color:var(--text3);font-weight:400">${r.skuCode}</span></td>
+      <td class="td-dest"><span class="chip" style="font-size:10px">${r.destName}</span></td>
+      <td style="padding:0"><div class="heat-cell" style="background:${todayC.color}33;color:${todayC.color}">
+        <div class="hv" style="color:${todayC.color}">${r.currentDDI!==null?fmt(r.currentDDI):'—'}</div>
+        <div class="hl" style="color:${todayC.color}">${fmtInt(r.currentInv)}</div>
+      </div></td>
+      ${cells}
+    </tr>`;
+  }).join('');
+
+  document.getElementById('content').innerHTML = `
+    <div class="section-header">
+      <div>
+        <div class="section-title">Simulador de entregas</div>
+        <div class="section-sub">Haz clic en cualquier celda para simular una entrega · Base: ${DateUtils.toISO(today)}</div>
+      </div>
+      <div class="section-actions">
+        <select class="filter-select" id="sim-dest" onchange="renderSimulator(this.value, document.getElementById('sim-cat').value)">
+          <option value="">Todos los destinos</option>
+          ${dests.map(d=>`<option value="${d.id}" ${destFilter===d.id?'selected':''}>${d.name}</option>`).join('')}
+        </select>
+        <select class="filter-select" id="sim-cat" onchange="renderSimulator(document.getElementById('sim-dest').value, this.value)">
+          <option value="">Todas las categorías</option>
+          ${cats.map(c=>`<option value="${c}" ${catFilter===c?'selected':''}>${c}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 14px;margin-bottom:12px;
+                background:${activeSims.length?'rgba(59,130,246,.10)':'var(--bg3)'};
+                border:1px solid ${activeSims.length?'var(--accent)':'var(--border)'};border-radius:var(--radius2)">
+      <span style="font-size:13px;font-weight:700;color:${activeSims.length?'var(--accent)':'var(--text3)'}">
+        ⚗ ${activeSims.length ? `${activeSims.length} entregas simuladas · ${fmtInt(totalSimUnits)} unidades` : 'Sin entregas simuladas'}
+      </span>
+      <span style="font-size:11px;color:var(--text3)">Escenario hipotético — no crea pedidos ni altera tus datos</span>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        ${activeSims.length?`<button class="btn btn-secondary btn-sm" onclick="convertSimsToOrders()">↳ Convertir en pedidos reales</button>
+        <button class="btn btn-danger btn-sm" onclick="clearAllSims()">✕ Limpiar simulación</button>`:''}
+      </div>
+    </div>
+
+    ${ddiLegendHtml()}
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:8px;flex-wrap:wrap">
+      <div class="order-legend"><div class="order-legend-dot"></div><span style="font-size:11px;color:var(--text3)">Punto blanco = pedido real llega esa semana</span></div>
+      <span style="font-size:11px;color:var(--text3)">Borde blanco = entrega simulada · <strong>+Nd</strong> = días de DDI ganados</span>
+    </div>
+
+    <div class="heatmap-wrap">
+      ${rows.length ? `<table class="heatmap-table">
+        <thead><tr>
+          <th class="col-sku">SKU</th>
+          <th class="col-dest">Destino</th>
+          <th style="text-align:center;padding:6px 8px;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text3);border-bottom:2px solid var(--border);white-space:nowrap">Hoy<br><span style="font-size:9px;font-weight:400">${DateUtils.toShort(today)}</span></th>
+          ${weeks.map(w=>`<th style="text-align:center;min-width:68px">${w.label}<br><span style="font-size:9px;font-weight:400;opacity:.7">${w.weekStart.getDate()}/${w.weekStart.getMonth()+1}</span></th>`).join('')}
+        </tr></thead>
+        <tbody>${bodyRows}</tbody>
+      </table>` : '<div class="empty-state"><div class="empty-icon">○</div><div class="empty-title">Sin datos</div></div>'}
+    </div>`;
+}
+
+// ── Editor de celda ──
+function openSimCell(skuId, destId, wi) {
+  const r = cachedResults.find(x => x.skuId===skuId && x.destId===destId);
+  if (!r) return;
+  const weeks = DateUtils.getWeeks(10);
+  const w     = weeks[wi];
+  const cur   = getSim(skuId, destId, wi);
+
+  const simArr = simArrayFor(skuId, destId, weeks.length);
+  const base   = r.weeklyProjection[wi];
+
+  document.getElementById('form-modal-title').textContent = `Simular entrega — ${r.skuName}`;
+  document.getElementById('form-modal-body').innerHTML = `
+    <div style="margin-bottom:14px;padding:10px 14px;background:var(--bg3);border-radius:var(--radius);font-size:12.5px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span style="color:var(--text3)">Destino</span><span style="font-weight:600">${r.destName}</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span style="color:var(--text3)">Semana</span><span style="font-weight:600">${w.labelFull}</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span style="color:var(--text3)">Demanda semanal</span><span style="font-family:var(--font-mono)">${fmtInt(base.weeklyDemand)} u</span></div>
+      <div style="display:flex;justify-content:space-between">
+        <span style="color:var(--text3)">DDI sin esta entrega</span>
+        <span style="font-family:var(--font-mono);font-weight:700;color:${Engine.getDDIColor(base.projDDI).color}">
+          ${base.projDDI!==null?fmt(base.projDDI)+'d':'—'}</span></div>
+    </div>
+    <div class="form-group">
+      <label>Cantidad a recibir esa semana</label>
+      <input id="f-simqty" type="number" min="0" step="10" value="${cur||''}" placeholder="0"
+        oninput="previewSim('${skuId}','${destId}',${wi}, this.value)">
+    </div>
+    <div id="sim-preview" style="margin-top:10px;padding:10px 14px;background:var(--bg3);
+         border-radius:var(--radius);font-size:12.5px;color:var(--text3)">
+      Escribe una cantidad para ver el impacto en los DDI
+    </div>
+    <div style="margin-top:12px;font-size:11px;color:var(--text3)">
+      Sugerencia de compra calculada para este SKU: <strong style="color:var(--accent)">${fmtInt(r.suggestedQty)} u</strong>
+      ${r.suggestedQty>0?`· <a href="#" onclick="document.getElementById('f-simqty').value=${r.suggestedQty};previewSim('${skuId}','${destId}',${wi},${r.suggestedQty});return false" style="color:var(--accent)">usar esta cantidad</a>`:''}
+    </div>`;
+
+  formModalCallback = () => {
+    const qty = parseFloat(document.getElementById('f-simqty').value) || 0;
+    setSim(skuId, destId, wi, qty);
+    closeModal('form-modal');
+    renderSimulator();
+    toast(qty>0 ? `Simulación: +${fmtInt(qty)} u en ${w.label}` : 'Simulación eliminada', qty>0?'success':'info');
+  };
+  document.getElementById('form-modal').style.display = 'flex';
+  setTimeout(()=>{ const el=document.getElementById('f-simqty'); if(el) el.focus(); }, 50);
+  if (cur) previewSim(skuId, destId, wi, cur);
+}
+
+/** Vista previa en vivo del impacto de la cantidad tecleada */
+function previewSim(skuId, destId, wi, val) {
+  const qty  = parseFloat(val) || 0;
+  const box  = document.getElementById('sim-preview');
+  if (!box) return;
+  const r    = cachedResults.find(x => x.skuId===skuId && x.destId===destId);
+  const nW   = 10;
+  const arr  = simArrayFor(skuId, destId, nW);
+  arr[wi]    = qty;
+  const proj = Engine.calcWeeklyProjection(skuId, destId, nW, arr);
+  const base = r.weeklyProjection;
+
+  if (qty <= 0) { box.innerHTML = 'Escribe una cantidad para ver el impacto en los DDI'; return; }
+
+  const rowsHtml = proj.slice(wi, Math.min(wi+5, nW)).map((w, k) => {
+    const idx = wi + k;
+    const c   = Engine.getDDIColor(w.projDDI);
+    const b   = base[idx];
+    const d   = (b.projDDI!==null && w.projDDI!==null) ? w.projDDI - b.projDDI : 0;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0">
+      <span style="font-family:var(--font-mono);font-size:11px">${w.label}</span>
+      <span>
+        <span style="color:var(--text3);font-family:var(--font-mono)">${b.projDDI!==null?fmt(b.projDDI):'—'}</span>
+        <span style="color:var(--accent);margin:0 4px">→</span>
+        <span style="font-family:var(--font-mono);font-weight:700;color:${c.color}">${w.projDDI!==null?fmt(w.projDDI):'—'}d</span>
+        ${d>=0.5?`<span style="color:var(--success);font-size:11px;margin-left:6px">+${fmt(d,0)}d</span>`:''}
+      </span></div>`;
+  }).join('');
+
+  box.innerHTML = `<div style="font-weight:700;color:var(--text2);margin-bottom:6px">Impacto en los DDI</div>${rowsHtml}`;
+}
+
+function clearAllSims() {
+  if (!confirm('¿Borrar todas las entregas simuladas?')) return;
+  _sims = {}; saveSims(); renderSimulator();
+  toast('Simulación limpiada', 'info');
+}
+
+/** Convierte el escenario simulado en pedidos reales (llegada = fin de esa semana) */
+function convertSimsToOrders() {
+  const sims = loadSims();
+  const entries = Object.entries(sims).filter(([,v]) => v > 0);
+  if (!entries.length) { toast('No hay entregas simuladas', 'warning'); return; }
+  const total = entries.reduce((s,[,v]) => s + Number(v), 0);
+  if (!confirm(`Se crearán ${entries.length} pedidos reales (${fmtInt(total)} unidades).\n\nLa fecha de llegada será el último día de cada semana simulada.\n\n¿Continuar?`)) return;
+
+  const weeks = DateUtils.getWeeks(10);
+  let created = 0;
+  for (const [k, qty] of entries) {
+    const [skuId, destId, wiStr] = k.split('|');
+    const w = weeks[Number(wiStr)];
+    if (!w) continue;
+    Admin.saveOrder({
+      skuId, destId, supplierId: '', qty: Number(qty),
+      arrivalDate: DateUtils.toISO(w.weekEnd), notes: 'Simulación confirmada'
+    });
+    created++;
+  }
+  _sims = {}; saveSims();
+  recalcAll(false);
+  renderSimulator();
+  toast(`${created} pedidos creados desde la simulación`, 'success', 4000);
 }
 
 // ══════════════════════════════════════════════════════

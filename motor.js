@@ -494,7 +494,7 @@ const Engine = {
    * Semana k (completa):        demand = WeeklyDemand_k
    * projInv iterativo; DDI = projInv / IRDR siempre.
    */
-  calcWeeklyProjection(skuId, destId, weeksAhead = 10) {
+  calcWeeklyProjection(skuId, destId, weeksAhead = 10, simArrivals = null) {
     const db      = DB.get();
     const inv     = db.inventory.find(i => i.skuId === skuId && i.destId === destId) || {};
     const sku     = db.skus.find(s => s.id === skuId);
@@ -518,7 +518,11 @@ const Engine = {
       const ordersThisWeek = this.getOrdersInRange(skuId, destId, week.weekStart, week.weekEnd);
       const ordersQty      = ordersThisWeek.reduce((s, o) => s + (o.qty || 0), 0);
 
-      const projInv  = prevInv - demandConsumed + ordersQty;
+      // Entrega SIMULADA de esta semana (solo simulador; no altera datos reales).
+      // Al ser iterativo, el efecto se propaga a todas las semanas siguientes.
+      const simQty = simArrivals ? (Number(simArrivals[wi]) || 0) : 0;
+
+      const projInv  = prevInv - demandConsumed + ordersQty + simQty;
       const projDDI  = irdr > 0 ? projInv / irdr : null;
       const ddiColor = this.getDDIColor(projDDI);
       prevInv        = projInv;
@@ -531,7 +535,7 @@ const Engine = {
         projDDI, ddiColor,
         isAtRisk:    projDDI !== null && projDDI <= 7,
         isCritical:  projDDI !== null && projDDI <= 0,
-        targetDDI, ordersThisWeek, ordersQty,
+        targetDDI, ordersThisWeek, ordersQty, simQty,
         ddsm: wd.ddsm
       };
     });
