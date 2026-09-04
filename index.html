@@ -661,24 +661,72 @@ function openSimCell(skuId, destId, wi) {
   const simArr = simArrayFor(skuId, destId, weeks.length);
   const base   = r.weeklyProjection[wi];
 
+  // Contexto de rutas activas: lead times y MOQ (informativo, no restrictivo)
+  const routes   = Engine.normalizeSupplierWeights(skuId, destId);
+  const leads    = routes.map(x => x.leadTime || 0);
+  const minLead  = leads.length ? Math.min(...leads) : null;
+  const maxLead  = leads.length ? Math.max(...leads) : null;
+  const moqs     = routes.map(x => x.moq || 1);
+  const minMoq   = moqs.length ? Math.min(...moqs) : null;
+  const maxMoq   = moqs.length ? Math.max(...moqs) : null;
+
+  // Primera semana alcanzable si se pidiera hoy con el lead time más corto
+  let earliestWi = null;
+  if (minLead !== null) {
+    const earliestDate = DateUtils.addDays(DateUtils.today(), minLead);
+    earliestWi = weeks.findIndex(x => x.weekEnd >= earliestDate);
+    if (earliestWi === -1) earliestWi = null;
+  }
+  const tooEarly = earliestWi !== null && wi < earliestWi;
+
   document.getElementById('form-modal-title').textContent = `Simular entrega — ${r.skuName}`;
   document.getElementById('form-modal-body').innerHTML = `
-    <div style="margin-bottom:14px;padding:10px 14px;background:var(--bg3);border-radius:var(--radius);font-size:12.5px">
+    <div style="margin-bottom:12px;padding:10px 14px;background:var(--bg3);border-radius:var(--radius);font-size:12.5px">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px">
         <span style="color:var(--text3)">Destino</span><span style="font-weight:600">${r.destName}</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px">
         <span style="color:var(--text3)">Semana</span><span style="font-weight:600">${w.labelFull}</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-        <span style="color:var(--text3)">Demanda semanal</span><span style="font-family:var(--font-mono)">${fmtInt(base.weeklyDemand)} u</span></div>
+        <span style="color:var(--text3)">IRD (demanda diaria)</span>
+        <span style="font-family:var(--font-mono);font-weight:700;color:var(--accent)">${fmt(r.irdr,2)} u/día</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span style="color:var(--text3)">Demanda semanal</span>
+        <span style="font-family:var(--font-mono)">${fmtInt(base.weeklyDemand)} u</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span style="color:var(--text3)">Inventario proyectado sin entrega</span>
+        <span style="font-family:var(--font-mono);color:${base.projInv<0?'var(--danger)':'var(--text2)'}">${fmtInt(base.projInv)} u</span></div>
       <div style="display:flex;justify-content:space-between">
         <span style="color:var(--text3)">DDI sin esta entrega</span>
         <span style="font-family:var(--font-mono);font-weight:700;color:${Engine.getDDIColor(base.projDDI).color}">
           ${base.projDDI!==null?fmt(base.projDDI)+'d':'—'}</span></div>
     </div>
+
+    <div style="margin-bottom:12px;padding:8px 14px;background:var(--bg2);border:1px solid var(--border);
+                border-radius:var(--radius);font-size:11.5px;color:var(--text3)">
+      ${routes.length ? `
+        <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+          <span>Lead time de rutas activas</span>
+          <span style="font-family:var(--font-mono);color:var(--text2)">${minLead === maxLead ? `${minLead}d` : `${minLead}–${maxLead}d`}</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+          <span>MOQ del proveedor (consolidado)</span>
+          <span style="font-family:var(--font-mono);color:var(--text2)">${minMoq === maxMoq ? `${fmtInt(minMoq)} u` : `${fmtInt(minMoq)}–${fmtInt(maxMoq)} u`}</span></div>
+        ${earliestWi !== null ? `<div style="display:flex;justify-content:space-between">
+          <span>Primera semana alcanzable si pides hoy</span>
+          <span style="font-family:var(--font-mono);color:var(--text2)">${weeks[earliestWi].label}</span></div>` : ''}
+      ` : `<span style="color:var(--warning)">⚠ Este SKU+destino no tiene rutas activas en la matriz</span>`}
+    </div>
+
+    ${tooEarly ? `<div style="margin-bottom:12px;padding:8px 14px;background:rgba(245,158,11,.10);
+        border:1px solid rgba(245,158,11,.35);border-radius:var(--radius);font-size:11.5px;color:var(--text2)">
+        ⚠ Esta semana llega antes de tu lead time mínimo (${minLead}d). El escenario es válido si el proveedor
+        confirma una entrega excepcional, pero no es alcanzable con las condiciones habituales.
+      </div>` : ''}
+
     <div class="form-group">
       <label>Cantidad a recibir esa semana</label>
       <input id="f-simqty" type="number" min="0" step="10" value="${cur||''}" placeholder="0"
         oninput="previewSim('${skuId}','${destId}',${wi}, this.value)">
+      <div id="sim-coverage" style="margin-top:5px;font-size:11.5px;color:var(--text3)"></div>
     </div>
     <div id="sim-preview" style="margin-top:10px;padding:10px 14px;background:var(--bg3);
          border-radius:var(--radius);font-size:12.5px;color:var(--text3)">
@@ -705,8 +753,25 @@ function openSimCell(skuId, destId, wi) {
 function previewSim(skuId, destId, wi, val) {
   const qty  = parseFloat(val) || 0;
   const box  = document.getElementById('sim-preview');
-  if (!box) return;
   const r    = cachedResults.find(x => x.skuId===skuId && x.destId===destId);
+
+  // Cobertura en días bajo el input: cuánto alcanza esa cantidad
+  const cov = document.getElementById('sim-coverage');
+  if (cov && r) {
+    if (qty > 0 && r.irdr > 0) {
+      const dias   = qty / r.irdr;
+      const routes = Engine.normalizeSupplierWeights(skuId, destId);
+      const minMoq = routes.length ? Math.min(...routes.map(x => x.moq || 1)) : null;
+      const bajoMoq = minMoq !== null && qty < minMoq;
+      cov.innerHTML = `Alcanza para <strong style="color:var(--accent)">${fmt(dias,1)} días</strong> de demanda`
+        + (qty % 10 !== 0 ? ` · <span style="color:var(--warning)">no es decena cerrada</span>` : '')
+        + (bajoMoq ? ` · <span style="color:var(--warning)">bajo el MOQ de ${fmtInt(minMoq)} u</span>` : '');
+    } else {
+      cov.innerHTML = '';
+    }
+  }
+
+  if (!box) return;
   const nW   = 10;
   const arr  = simArrayFor(skuId, destId, nW);
   arr[wi]    = qty;
